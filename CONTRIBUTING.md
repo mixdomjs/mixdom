@@ -58,7 +58,7 @@ Thank you for considering contributing to MixDOM. It's an open source library an
 
 ### Where
 
-- Use the GitHub repo:  https://github.com/mixdomjs/mix-dom.git
+- Use the GitHub repo:  https://github.com/mixdomjs/mixdom.git
 
 ### TypeScript
 
