@@ -1,7 +1,7 @@
 {
     "name": "mix-dom",
     "version": "3.0.0",
-    "description": "Powerful state based DOM rendering library (in JS/TS) - inspired by React, but totally reconceptualized.",
+    "description": "Powerful state based DOM rendering library (in JS/TS)",
     "keywords": [
         "MixDOM",
         "mix-dom",

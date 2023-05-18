@@ -662,6 +662,11 @@ export class HostRender {
                         if (domParentWas)
                             domParentWas.removeChild(domNode);
                     }
+                    // 
+                    // Dev. notes on the check above:
+                    // .. Note that due to the reverse order next sibling checks work for us here.
+                    // .. And for the parent it works, too, because if parent would be the same, it must have been the same parent treeNode as well.
+                    // .... And if was combined with "swap" on the parent, it's already done beforehands and updated.
                 }
                 // Update bookkeeping in any case.
                 HostRender.updateDOMChainBy(thisTreeNode, domNode);
