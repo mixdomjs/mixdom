@@ -1,3 +1,9 @@
+## v3.0.1
+
+### Tiny typing fixes
+- Fixed a typing typo in relation context.sendSignalAs method.
+- Refined to work around a typing warning in the `MixDOM.module.d.ts`.
+
 ## v3.0.0
 
 ### New main version (and name)
