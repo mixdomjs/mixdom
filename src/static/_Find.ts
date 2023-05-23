@@ -1,15 +1,14 @@
 
 // - Imports - //
 
+import { _Lib } from "./_Lib";
 import {
     MixDOMTreeNode,
     MixDOMTreeNodeDOM,
     MixDOMTreeNodeType,
     MixDOMDefApplied,
 } from "./_Types";
-import { _Lib } from "./_Lib";
 import { _Defs } from "./_Defs";
-import { SourceBoundary, ContentBoundary } from "../classes/Boundary";
 
 
 // - _Find static features - //
@@ -19,37 +18,37 @@ export const _Find = {
 
     // - Finders - //
 
-    /** This is a very quick way to find all boundaries within and including the given one - recursively if includeNested is true.
-     * - Note that this stays inside the scope of the host (as .innerBoundaries never contains the root boundary of another host). */
-    boundariesWithin(origBoundary: SourceBoundary, includeNested: boolean = true): SourceBoundary[] {
-        // Prepare.
-        const list: SourceBoundary[] = [];
-		let bLeft : (SourceBoundary | ContentBoundary)[] = [origBoundary];
-		let boundary : SourceBoundary | ContentBoundary | undefined;
-        let i = 0;
-        // Loop recursively in tree order.
-		while (boundary = bLeft[i]) {
-            // Next.
-            i++;
-            // Skip content boundaries, and all within them.
-            if (!boundary.boundaryId)
-                continue;
-            // Skip inactive.
-            if (boundary.isMounted === null)
-                continue;
-            // Accepted.
-            list.push(boundary);
-            // Skip going further.
-            if (!includeNested && origBoundary !== boundary)
-                continue;
-			// Add child defs to top of queue.
-			if (boundary.innerBoundaries[0]) {
-			    bLeft = boundary.innerBoundaries.concat(bLeft.slice(i));
-                i = 0;
-            }
-		}
-        return list;
-    },
+    // /** This is a very quick way to find all boundaries within and including the given one - recursively if includeNested is true.
+    //  * - Note that this stays inside the scope of the host (as .innerBoundaries never contains the root boundary of another host). */
+    // boundariesWithin(origBoundary: SourceBoundary, includeNested: boolean = true): SourceBoundary[] {
+    //     // Prepare.
+    //     const list: SourceBoundary[] = [];
+	// 	let bLeft : (SourceBoundary | ContentBoundary)[] = [origBoundary];
+	// 	let boundary : SourceBoundary | ContentBoundary | undefined;
+    //     let i = 0;
+    //     // Loop recursively in tree order.
+	// 	while (boundary = bLeft[i]) {
+    //         // Next.
+    //         i++;
+    //         // Skip content boundaries, and all within them.
+    //         if (!boundary.bId)
+    //             continue;
+    //         // Skip inactive.
+    //         if (boundary.isMounted === null)
+    //             continue;
+    //         // Accepted.
+    //         list.push(boundary);
+    //         // Skip going further.
+    //         if (!includeNested && origBoundary !== boundary)
+    //             continue;
+	// 		// Add child defs to top of queue.
+	// 		if (boundary.innerBoundaries[0]) {
+	// 		    bLeft = boundary.innerBoundaries.concat(bLeft.slice(i));
+    //             i = 0;
+    //         }
+	// 	}
+    //     return list;
+    // },
 
     /** Finds treeNodes of given types within the given rootTreeNode (including it).
      * - If includeNested is true, searches recursively inside sub boundaries - not just within the render scope. (Normally stops after meets a source or content boundary.)
@@ -114,7 +113,6 @@ export const _Find = {
                     if (!inNestedBoundaries)
                         break;
                 // Collect root nodes inside.
-                case "contexts":
                 case "root":
                     collected = collected.concat(_Find.rootDOMTreeNodes(treeNode, inNestedBoundaries, includeEmpty, maxCount && (maxCount - collected.length)));
                     if (maxCount && collected.length >= maxCount)
@@ -128,21 +126,16 @@ export const _Find = {
 
     /** Get all defs (including the given one) in tree order traversing down from the given one.
      * - The search is automatically limited to inside the render scope, as defs are. */
-    allDefsIn(rootDef: MixDOMDefApplied, okTypes?: Partial<Record<MixDOMTreeNodeType, boolean>>, maxCount: number = 0): MixDOMDefApplied[] {
+    allDefsIn(rootDef: MixDOMDefApplied): MixDOMDefApplied[] {
         // Prepare.
         const allDefs: MixDOMDefApplied[] = [];
         let defs: MixDOMDefApplied[] = [ rootDef ];
         let def: MixDOMDefApplied | undefined;
         let i = 0;
         // Loop each.
-        while (def = defs[i]) {
+        while (def = defs[i++]) {
             // Add.
-            if (!okTypes || okTypes[def.MIX_DOM_DEF])
-                // Stop if too much.
-                if (allDefs.push(def) >= maxCount && maxCount)
-                    break;
-            // Next.
-            i++;
+            allDefs.push(def);
             // Add kids to the front of the queue.
             if (def.childDefs[0]) {
                 defs = def.childDefs.concat(defs.slice(i));
@@ -152,6 +145,34 @@ export const _Find = {
         // Return collected.
         return allDefs;
     },
+
+    
+    // /** Get all defs (including the given one) in tree order traversing down from the given one.
+    //  * - The search is automatically limited to inside the render scope, as defs are. */
+    // allDefsIn(rootDef: MixDOMDefApplied, okTypes?: Partial<Record<MixDOMTreeNodeType, boolean>>, maxCount: number = 0): MixDOMDefApplied[] {
+    //     // Prepare.
+    //     const allDefs: MixDOMDefApplied[] = [];
+    //     let defs: MixDOMDefApplied[] = [ rootDef ];
+    //     let def: MixDOMDefApplied | undefined;
+    //     let i = 0;
+    //     // Loop each.
+    //     while (def = defs[i]) {
+    //         // Add.
+    //         if (!okTypes || okTypes[def.MIX_DOM_DEF])
+    //             // Stop if too much.
+    //             if (allDefs.push(def) >= maxCount && maxCount)
+    //                 break;
+    //         // Next.
+    //         i++;
+    //         // Add kids to the front of the queue.
+    //         if (def.childDefs[0]) {
+    //             defs = def.childDefs.concat(defs.slice(i));
+    //             i = 0;
+    //         }
+    //     }
+    //     // Return collected.
+    //     return allDefs;
+    // },
 
 
     // - Shortcuts - //

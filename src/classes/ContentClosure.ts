@@ -14,8 +14,7 @@ import {
 import { _Find } from "../static/_Find";
 import { _Apply } from "../static/_Apply";
 import { ContentBoundary, SourceBoundary } from "./Boundary";
-import { ContentAPI } from "./ContentAPI";
-import { ComponentStreamType, ComponentStream } from "./ComponentStream";
+import { ComponentStream } from "./ComponentStream";
 import { HostServices } from "./HostServices";
 
 
@@ -30,16 +29,22 @@ export class ContentClosure {
     /** The sourceBoundary is required to render anything - it defines to whom the content originally belongs.
      * If it would ever be switched (eg. by streaming from multiple sources), should clear the envelope first, and then assign new. */
     sourceBoundary: SourceBoundary | null;
+    /** The sealed envelope that contains the content to pass: { applied, targetDef }. */
     envelope: MixDOMContentEnvelope | null;
+    /** If not null, then this is the grounding def that features a true pass. */
     truePassDef: MixDOMDefApplied | null;
-    groundedDefsMap: Map<MixDOMDefApplied, [SourceBoundary | ContentBoundary, MixDOMTreeNode, any]>;
+    /** Map where keys are the grounded defs (applied), and values are [boundary, treeNode, copyKey]. */
+    groundedDefs: Map<MixDOMDefApplied, [boundary: SourceBoundary | ContentBoundary, treeNode: MixDOMTreeNode, copyKey: any]>;
+    /** The grounded defs that are pending refresh. If all should be refreshed, contains all the keys in the groundedDefs. */
     pendingDefs: Set<MixDOMDefApplied>;
-
-    /** Contains the links back to the content api's - used for collecting interested boundaries (base on needs) for auto-updating them. Managed from outside this class. */
-    contentLinks: Set<ContentAPI>;
-    /** Contains the links back to the defs (fragment.withContent() or pass.getContentStream()) related to stream outs, that might in turn have contentLinks to content apis. Managed from outside this class. Does not exist until first one created. */
-    streamLinks?: Set<MixDOMDefApplied>;
-
+    /** This contains the boundaries from any WithContent components that refer to us.
+     * - They will be re-updated every time our envelope changes. (Actually they would just care about null vs. non-null.) */
+    withContents?: Set<SourceBoundary>;
+    /** Used to detect which closures are linked together through content passing.
+     * - This is further more used for the withContents feature. (But could be used for more features.)
+     * - Note that this kind of detection is not needed for streams: as there's only the (active) source and target - nothing in between them.
+     */
+    chainedClosures?: Set<ContentClosure>;
     /** If this closure is linked to feed a stream, assign the stream instance here. */
     stream?: ComponentStream | null;
 
@@ -48,116 +53,56 @@ export class ContentClosure {
         this.sourceBoundary = sourceBoundary || null;
         this.envelope = null;
         this.truePassDef = null;
-        this.groundedDefsMap = new Map();
+        this.groundedDefs = new Map();
         this.pendingDefs = new Set();
-        this.contentLinks = new Set();
     }
 
 
     // - Needs - //
 
+    /** Whether we have any actual content to pass. */
     hasContent(): boolean {
-        const aDef = this.envelope?.appliedDef;
+        const aDef = this.envelope?.applied;
         return !(!aDef || aDef.disabled || (aDef.MIX_DOM_DEF === "fragment" && (!aDef.childDefs.length || aDef.childDefs[0].disabled && aDef.childDefs.length === 1)));
     }
 
+    /** Get the content that we pass. */
     readContent(shallowCopy: boolean = false): Readonly<MixDOMDefTarget[]> | null {
         if (!this.envelope)
             return null;
-        const aDef = this.envelope.appliedDef;
+        const aDef = this.envelope.applied;
         const childDefs = aDef.childDefs;
         if (aDef.MIX_DOM_DEF === "fragment" && (!childDefs.length || childDefs[0].disabled && childDefs.length === 1))
             return null;
-        const tDefs = this.envelope.targetDef.childDefs;
+        const tDefs = this.envelope.target.childDefs;
         return shallowCopy ? tDefs.slice() : tDefs;
     }
-    
+
+    /** Collect the interested boundaries.
+     * - In practice these come from two places:
+     *      1. The special WithContent components (either the MixDOM global one or from a ComponentStream).
+     *      2. For parental content passing, also the child closures that have reported to be fed by us.
+     * - Because of this architectural decision, we actually don't anymore need a cyclical loop prevention (as of v3.1).
+     *      * This is because, the parent no longer has to re-render - earlier had to using: .withContent(...contents). Instead only WithContent component updates.
+     *      * Cyclical prevention would only be needed if deliberately formed one by defining render content for MyStream within MyStream.WithContent content pass.
+     */
     collectInterested(byStream?: ComponentStream | null): Set<SourceBoundary> | null {
-
-        // Prepare.
-        const interested: Set<SourceBoundary> = new Set();
-
-        // For Stream's closure, the logic is very different from normal content passing (see below).
-        // .. It's connected non-locally, so it doesn't have a thruBoundary whose innerBoundaries we can use to go downwards until the chain breaks.
-        // .. Instead, streams can be connected in two ways: 1. by having been grounded somewhere, 2. interests having been set. Otherwise, simply not connected.
-        if (byStream) {
-
-            // Loop stream linked defs.
-            if (this.streamLinks) {
-                for (const aDef of this.streamLinks) {
-                    // Get stream tied to the def.
-                    let Stream: ComponentStreamType | null = null;
-                    switch (aDef.MIX_DOM_DEF) {
-                        case "fragment":
-                            if (typeof aDef.withContent === "function")
-                                Stream = aDef.withContent();
-                            break;
-                        case "pass":
-                            if (aDef.getContentStream)
-                                Stream = aDef.getContentStream();
-                            break;
-                    }
-                    // If has stream, get the interested through its .contentLinks.
-                    if (Stream && Stream.contentLinks.size) {
-                        for (const cApi of Stream.contentLinks) {
-
-                            // // Not interested - actually the contentLinks are updated immediately based on needs, so this check could be omitted.
-                            // if (!cApi.streamNeeds || !cApi.streamNeeds.get(Stream))
-                            //     continue;
-
-                            // Add to interested.
-                            interested.add(cApi.component.boundary);
-                        }
-                    }
-                }
-            }
-
-            // Dev. note.
-            // 
-            // Should we also loop all the grounded spots, and go down there by innerBoundaries - because our content might be passed further..?
-            // .. The answer is: No, there's no down passing chain for streams - it's direct..!
-            // .. The only practical exception is if the content is the content pass for stream, and it happens to have no content.
-            // .... Then withContent behaviour is technically correct, but not what the user assumes: ultimately there will be nothing to pass.
-            // .... However, this is fine enough. If really would want to know that, can use the contentAPI.getFor() and examine the contents if any.
-            // ..... Actually, no can't - for the same reason that we can't automate it here easily. Because of the _needs_.
-            //
-            // .. So then. We could theoretically, check the grounding defs, and loop up _parent_ boundaries until reaching _source_ (unless original is source)..?
-            // .... No hey, shouldn't it work, if wraps both with withContent..?
-            // .... Hmm, will have a disabled def there at the root. <-- We could check for that.
-            //
-            // Afternote: I think checking was implemented for this special case.
-            // .. In any case, should verify those special cases and examine the practical usefulness.
-
-        }
-
-        // For normal content passing (down the tree), we must use the .thruBoundary.innerBoundaries to go down.
-        // .. We know that the chain is broken if an inner boundary's closure has no interested nor grounding points. Otherwise the chain continues.
-        // .. Along this chain (including us), we collect the interested and alarm them for updates.
-        else if (this.thruBoundary) {
-            let loop: SourceBoundary[] = [ this.thruBoundary ];
-            let boundary: SourceBoundary | undefined;
-            let i = 0;
-            while (boundary = loop[i]) {
-                i++;
-                // Add interested. Note that on the first run, this refers to us.
-                for (const cApi of boundary.closure.contentLinks) {
-
-                    // // Actually the contentLinks are updated immediately - so this check could be omitted.
-                    // if (!cApi.localNeeds)
-                    //     continue;
-
-                    // Add to interests.
-                    interested.add(cApi.component.boundary);
-                }
-                // Add inner.
-                if (boundary.innerBoundaries[0]) {
-                    loop = (boundary.innerBoundaries.filter(b => b.boundaryId && b.closure.contentLinks.size) as SourceBoundary[]).concat(loop.slice(i));
-                    // loop = (boundary.innerBoundaries.filter(b => b.boundaryId && (b.closure.groundedDefsMap.size || b.closure.contentLinks.size)) as SourceBoundary[]).concat(loop.slice(i));
-                    i = 0;
-                }
+        // From Stream.
+        if (byStream)
+            return byStream.constructor.closure?.withContents ? new Set(byStream.constructor.closure.withContents) : null;
+        // Doesn't have any direct interests, nor any child closures that we're feeding to.
+        if (!this.withContents && !this.chainedClosures)
+            return null;
+        // Add direct interests.
+        const interested = this.withContents ? new Set(this.withContents) : new Set<SourceBoundary>();
+        if (this.chainedClosures) {
+            for (const subClosure of this.chainedClosures) {
+                const intr = subClosure.collectInterested();
+                if (intr)
+                    for (const b of intr)
+                        interested.add(b);
             }
         }
-
         // Return interested.
         return interested.size ? interested : null;
     }
@@ -165,8 +110,10 @@ export class ContentClosure {
 
     // - Grounding / Ungrounding - //
 
-    // If was grounded for the first time, updates the internals and returns render infos and boundary updates for the content.
-    // .. If was grounded already returns [] for infos.
+    /** Should be called when a treeNode is grounding us to the grounded tree.
+     * - If was grounded for the first time, updates the internals and returns render infos and boundary updates for the content.
+     * - If was already grounded, returns [] for infos.
+     */
     contentGrounded(groundingDef: MixDOMDefApplied, gBoundary: SourceBoundary | ContentBoundary, treeNode: MixDOMTreeNode, copyKey?: any): MixDOMChangeInfos {
 
         // Note that we don't collect listener boundaries.
@@ -177,7 +124,7 @@ export class ContentClosure {
         // Already grounded.
         // .. There's no changes upon retouching the ground - it was the parent that rendered, we don't care and nor does it.
         // .. However, we must still detect moving, and add according renderInfos (for all our dom roots) if needed.
-        const info = this.groundedDefsMap.get(groundingDef);
+        const info = this.groundedDefs.get(groundingDef);
         if (info) {
             // Check if should move the content.
             if (groundingDef.action === "moved" && treeNode.boundary) {
@@ -193,7 +140,7 @@ export class ContentClosure {
         }
 
         // Update mapping.
-        this.groundedDefsMap.set(groundingDef, [gBoundary, treeNode, copyKey]);
+        this.groundedDefs.set(groundingDef, [gBoundary, treeNode, copyKey]);
 
         // Update now and return the infos to the flow - we do this only upon grounding for the first time.
         // .. Otherwise, our content is updated on .applyRefresh(), which will be called after.
@@ -201,16 +148,17 @@ export class ContentClosure {
 
     }
 
+    /** Should be called when a treeNode that had grounded our content into the grounded tree is being cleaned up. */
     contentUngrounded(groundingDef: MixDOMDefApplied): [MixDOMRenderInfo[], MixDOMSourceBoundaryChange[]] {
         // Not ours - don't touch.
-        const info = this.groundedDefsMap.get(groundingDef);
+        const info = this.groundedDefs.get(groundingDef);
         if (!info)
             return [[], []];
         // Was the real pass - free it up.
         if (this.truePassDef === groundingDef)
             this.truePassDef = null;
         // Remove from groundDefs and put its childDefs back to empty.
-        this.groundedDefsMap.delete(groundingDef);
+        this.groundedDefs.delete(groundingDef);
         this.pendingDefs.delete(groundingDef);
         // Destroy the content boundary (attached to the treeNode in our info).
         // .. We must nullify the defs too.
@@ -222,7 +170,7 @@ export class ContentClosure {
     // - Refreshing content - //
 
     /** Sets the new envelope so the flow can be pre-smart, but does not apply it yet. Returns the interested sub boundaries. */
-    preRefresh(newEnvelope: MixDOMContentEnvelope | null, byStream?: ComponentStream | null, skipInterests?: boolean): Set<SourceBoundary> | null {
+    preRefresh(newEnvelope: MixDOMContentEnvelope | null, byStream?: ComponentStream | null): Set<SourceBoundary> | null {
 
         // Notes about streaming:
         // 1. The normal content passing happens for the Stream source's closure by its parent.
@@ -234,49 +182,56 @@ export class ContentClosure {
         // If part of stream, our grounders are in the stream closure.
         if (this.stream && this.stream.canRefresh()) {
             this.envelope = newEnvelope;
-            return this.stream.preRefresh(newEnvelope, skipInterests);
+            return this.stream.preRefresh(newEnvelope);
         }
         // Special quick exit: already at nothing.
         if (!this.envelope && !newEnvelope)
             return null;
+        
+        // // Alternative detection for whether our new envelope contains a content pass or not.
+        // // .. If it does, we'll update the chainedClosures bookkeeping.
+        // // .. Note that this feature is now detected in _Apply.defPairs without this extra run using def.hasPassWithin and used in _Apply.
+        // const sClosure = this.sourceBoundary?.closure;
+        // if (sClosure) {
+        //     let hasPass = false;
+        //     if (newEnvelope) {
+        //         let defs = newEnvelope.applied.childDefs;
+        //         while (defs[0]) {
+        //             let nextDefs: MixDOMDefApplied[] = [];
+        //             for (const def of defs) {
+        //                 if (def.MIX_DOM_DEF === "pass") {
+        //                     hasPass = true;
+        //                     break;
+        //                 }
+        //                 if (def.childDefs[0])
+        //                     nextDefs = nextDefs.concat(def.childDefs);
+        //             }
+        //             if (hasPass)
+        //                 break;
+        //             defs = nextDefs;
+        //         }
+        //     }
+        //     if (hasPass)
+        //         (sClosure.chainedClosures || (sClosure.chainedClosures = new Set())).add(this);
+        //     else
+        //         sClosure.chainedClosures?.delete(this);
+        // }
+
         // Collect interested.
-        const interested = skipInterests ? null : this.collectInterested(byStream);
-        // If had interested, mark preUpdates for them without host.services.absorbUpdates call.
-        // .. The parent scope that calls us should handle them directly instead.
-        if (interested) {
-            // Get before.
-            const oldKids = this.envelope?.targetDef.childDefs.slice() || []; // <-- Should we slice here..? I guess.
-            // For a stream.
-            if (byStream)
-                for (const b of interested) {
-                    // Mark for updates.
-                    // .. Note that for comparisons, it's okay to use a Map here and set keys on it (without creating a new).
-                    // .. This is because on each update run it's a new preUpdate object and thus a new map.
-                    if (!b._preUpdates)
-                        b._preUpdates = { streamed: new Map([[byStream, oldKids]]) }
-                    else if (!b._preUpdates.streamed)
-                        b._preUpdates.streamed = new Map([[byStream, oldKids]]);
-                    else if (!b._preUpdates.streamed.has(byStream))
-                        b._preUpdates.streamed.set(byStream, oldKids);
-                }
-            // In regards to parental content passing.
-            else 
-                for (const b of interested) {
-                    // Mark the boundary for updates.
-                    if (!b._preUpdates)
-                        b._preUpdates = { children: oldKids }
-                    else if (!b._preUpdates.children)
-                        b._preUpdates.children = oldKids;
-                }
-        }
+        const interested = this.collectInterested(byStream);
+        // Mark that they have updates.
+        if (interested)
+            for (const b of interested)
+                HostServices.preSetUpdates(b, { force: true });
         // Set envelope.
         this.envelope = newEnvelope;
         // Mark all as pending.
-        this.pendingDefs = new Set(this.groundedDefsMap.keys());
-        // Return all interested.
+        this.pendingDefs = new Set(this.groundedDefs.keys());
+        // Return the interested one or then nothing.
         return interested;
     }
 
+    /** Call this after preRefresh to do the actual update process. Returns infos for boundary calls and render changes. */
     applyRefresh(forceUpdate: boolean = false): MixDOMChangeInfos {
 
         // If part of stream, our grounders are in the stream closure.
@@ -296,7 +251,7 @@ export class ContentClosure {
         // // There's no true pass def at all - clean up all inside in relation to original defs.
         // if (!this.truePassDef && this.envelope) {
         //     const devLog = this.sourceBoundary && this.sourceBoundary.host.settings.devLogCleanUp || false;
-        //     for (const def of this.envelope.appliedDef.childDefs) {
+        //     for (const def of this.envelope.applied.childDefs) {
         //         // Nothing to clean up.
         //         const treeNode = def.treeNode;
         //         if (!treeNode)
@@ -333,11 +288,9 @@ export class ContentClosure {
     /** Internal helper to apply a new envelope and update any interested inside, returning the infos. */
     public applyEnvelope(newEnvelope: MixDOMContentEnvelope | null): MixDOMChangeInfos {
         // Update interested.
-        const interested = this.preRefresh(newEnvelope);
-        const extraInfos: MixDOMChangeInfos | null = interested ? HostServices.updateInterested(interested) : null;
+        this.preRefresh(newEnvelope);
         // Apply and get infos.
-        const uInfos = this.applyRefresh();
-        return extraInfos ? [ extraInfos[0].concat(uInfos[0]), extraInfos[1].concat(uInfos[1]) ] : uInfos;
+        return this.applyRefresh();
     }
 
 
@@ -358,7 +311,7 @@ export class ContentClosure {
         // Collect rendering infos basis once.
         // .. They are the same for all copies, except that the appliedDef is different for each.
         if (!groundedDefs)
-            groundedDefs = this.groundedDefsMap.keys();
+            groundedDefs = this.groundedDefs.keys();
 
         // Loop each given groundedDef.
         let renderInfos: MixDOMRenderInfo[] = [];
@@ -367,7 +320,7 @@ export class ContentClosure {
             // Mark as non-pending in any case.
             this.pendingDefs.delete(groundingDef);
             // Get.
-            const info = this.groundedDefsMap.get(groundingDef);
+            const info = this.groundedDefs.get(groundingDef);
             if (info === undefined)
                 continue;
             let [gBoundary, treeNode, copyKey] = info;
@@ -399,13 +352,13 @@ export class ContentClosure {
                 // Create.
                 if (!contentBoundary) {
                     // Create a new content boundary.
-                    contentBoundary = new ContentBoundary(groundingDef, envelope.targetDef, treeNode, this.sourceBoundary);
+                    contentBoundary = new ContentBoundary(groundingDef, envelope.target, treeNode, this.sourceBoundary);
                     // Create basis for content copy - forces copy if already has a grounded def for truePass.
                     // .. Each copy grounding starts from an empty applied def, so we don't need to do anything else.
                     // .. For true pass we assign the childDefs directly to the innerDef's childDefs - the innerDef is a fragment.
                     isTruePass = copyKey == null && (!this.truePassDef || this.truePassDef === groundingDef);
                     if (isTruePass) {
-                        contentBoundary._innerDef.childDefs = envelope.appliedDef.childDefs;
+                        contentBoundary._innerDef.childDefs = envelope.applied.childDefs;
                         this.truePassDef = groundingDef;
                     }
                     // Assign common stuff.
@@ -415,11 +368,11 @@ export class ContentClosure {
                 // Update existing content boundary.
                 else {
                     isTruePass = this.truePassDef === groundingDef;
-                    contentBoundary.updateEnvelope(envelope.targetDef, isTruePass ? envelope.appliedDef : null);
+                    contentBoundary.updateEnvelope(envelope.target, isTruePass ? envelope.applied : null);
                 }
                 // Apply defs to pass/copy.
                 const [rInfos, bChanges] = isTruePass ?
-                    _Apply.runContentPassUpdate(contentBoundary, forceUpdate) :
+                    _Apply.runPassUpdate(contentBoundary, forceUpdate) :
                     _Apply.runBoundaryUpdate(contentBoundary, forceUpdate);
                 // Collect infos.
                 renderInfos = renderInfos.concat(rInfos);

@@ -21,8 +21,6 @@ export function _DataManMixin<Data = any>(Base: ClassType) {
 
     return class _DataMan extends Base {
 
-        
-
 
         // - Members - //
 

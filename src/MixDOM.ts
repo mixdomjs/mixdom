@@ -7,14 +7,12 @@ import {
     DOMTags,
     MixDOMPreDOMTagProps,
     MixDOMDefTarget,
-    MixDOMRenderOutput,
     MixDOMTreeNode,
     MixDOMTreeNodeType,
-    MixDOMContextAttach,
     MixDOMBoundary,
-    MixDOMCompareDepthByMode,
+    MixDOMDefApplied,
 } from "./static/_Types";
-import { _Lib } from "./static/_Lib";
+import { MixDOMCompareDepth, _Lib } from "./static/_Lib";
 import { _Defs, newDef } from "./static/_Defs";
 import { _Find } from "./static/_Find";
 import { _Apply } from "./static/_Apply";
@@ -25,17 +23,17 @@ import {
     PseudoElement,
     PseudoEmpty,
     PseudoEmptyStream,
-    PseudoContexts
 } from "./classes/ComponentPseudos";
 import { newHost, Host } from "./classes/Host";
 import { newContext, newContexts, Context } from "./classes/Context";
-import { createSpread } from "./classes/ComponentSpread";
+import { createSpread, createSpreadWith } from "./classes/ComponentSpread";
 import {
     createComponent,
-    createComponentWith,
     Component,
     ComponentMixin,
     ComponentTypeAny,
+    ComponentType,
+    createComponentWith,
 } from "./classes/Component";
 import {
     createMixin,
@@ -48,7 +46,7 @@ import {
     mixHOCs,
     mixComponentMixinsWith,
 } from "./classes/ComponentMixing";
-import { createWrapper } from "./classes/ComponentWrapper";
+import { createWired } from "./classes/ComponentWired";
 import { createStream } from "./classes/ComponentStream";
 import { newRef, Ref } from "./classes/Ref";
 import { newEffect, Effect, EffectMixin } from "./addons/Effect";
@@ -57,6 +55,7 @@ import { createShadow, createShadowWith } from "./classes/ComponentShadow";
 import { SignalMan, SignalManMixin } from "./classes/SignalMan";
 import { DataMan, DataManMixin } from "./classes/DataMan";
 import { DataSignalMan, DataSignalManMixin } from "./classes/DataSignalMan";
+import { ContentClosure } from "./classes/ContentClosure";
 
 
 // - Export shortcuts - //
@@ -65,10 +64,36 @@ import { DataSignalMan, DataSignalManMixin } from "./classes/DataSignalMan";
 export { newDef } from "./static/_Defs";
 
 // Content.
-export const mixDOMContent = _Defs.newContentPassDef();
-export const mixDOMContentCopy = _Defs.newContentPassDef({}, true);
-export const mixDOMWithContent = (...contents: MixDOMRenderOutput[]) =>
-    newDef(MixDOM.Fragment, { withContent: true }, ...contents);
+export const MixDOMContent = _Defs.newContentPassDef();
+export const MixDOMContentCopy = _Defs.newContentPassDef({}, true);
+export type WithContentInfo = {
+    props: {
+        /** If set to a boolean value (= not null nor undefined), skips checking whether actually has content and returns the value. */
+        hasContent?: boolean | null;
+    };
+    class: {
+        /** Internal method to check whether has content - checks recursively through the parental chain. */
+        hasContent(): boolean;
+    };
+}
+const checkRecursively = (def: MixDOMDefApplied): boolean => {
+    const e = def.contentPass?.envelope;
+    return e && _Defs.hasContentInDefs(e.applied.childDefs, checkRecursively) as boolean || false;
+};
+const MixDOMWithContent = class WithContent extends Component<WithContentInfo> {
+    /** Technical marker. Simply used to differentiate us from the Stream. */
+    public static _WithContent = MixDOMContent;
+    /** Internal method to check whether has content through the chain recursively. */
+    public hasContent(): boolean {
+        // Get our boundary's source boundary's closure. (As it's not about us, it's about our parent.)
+        const closure: ContentClosure | null | undefined = this.boundary.sourceBoundary?.closure;
+        // Check upstairs, recursively if needs to.
+        return closure && closure.envelope && _Defs.hasContentInDefs(closure.envelope.applied.childDefs, checkRecursively) as boolean || false;
+    }
+    public render() {
+        return (this.props.hasContent ?? this.hasContent()) ? MixDOMContent : null;
+    }
+} as ComponentType<WithContentInfo>;
 
 /** Create a new def from a html string. Returns a def for a single html element
  * - If a wrapInTag given will use it as a container.
@@ -115,35 +140,39 @@ export const MixDOM = {
      * - Use this to include content (~ React's props.children) from the parent component.
      * - Note that in the case of multiple contentPasses the first one in tree order is the real one.
      *   .. If you deliberately want to play with which is the real one and which is a copy, use MixDOM.ContentCopy or MixDOM.copyContent(someKey) for the others. */
-    Content: mixDOMContent,
-    /** If you want to include things only if actually will have content for MixDOM.Content.
-     * - Use like this: `<div>{MixDOM.withContent(<span class="content">{MixDOM.Content}</span>)}</div>`
-     * - Technically this uses .getChildren() to check, and so adds a children dependency for the component.
-     *      * For SpreadFunctions they have their own procedure, so handled in there.
-     * - Note that using this features means that the component must re-render everytime its contents (given by the parent) are changed / re-rendered. */
-    withContent: mixDOMWithContent,
+    Content: MixDOMContent,
+    /** A custom component (func) that can be used for conditional inserting.
+     * - For example: `<WithContent><span class="title">{MixDOM.Content}</span></WithContent>`
+     *      * Results in `<span class="title">...</span>`, where ... is the actual content passed (by parent).
+     *      * However, if there was no actual content to pass (`null` or `undefined`), then results in `null`.
+     *      * Note that if the parent passes {MixDOM.Content}, then it is something and will render with the wrapping (so does not work recursively).
+     * - Note that if the component ever needs to "handle" the children, or be refreshed when they change, should put the related info as `props`.
+     *      * For example, `{ props.children: MixDOMRenderOutput[]; }`. Or even better as: `{ props.items: MyItem[]; }` and then create the defs within from the MyItem info.
+     *      * You can then also easily detect if there are any children/items and do conditional rendering accordingly.
+     * - Note that prior to v3.1, this feature worked technically differently.
+     *      * Now it's implemented in a much simpler way, only drawback being the lack of recursive support, but benefit being that parent won't have to re-render (and ~4kB less minified code).
+     */
+    WithContent: MixDOMWithContent,
     /** A generic shortcut for a content copy.
      * .. We give it a unique key ({}), so that it can be widely moved around.
      * .. In the case you use multiple ContentCopy's, then reuses each widely by tree order. */
-    ContentCopy: mixDOMContentCopy,
+    ContentCopy: MixDOMContentCopy,
     /** Use this method to create a copy of the content that is not swappable with the original render content.
      * - This is very rarely useful, but in the case you want to display the passed content multiple times,
      *   this allows to distinguish from the real content pass: `{ MixDOM.Content }` vs. `{ MixDOM.copyContent("some-key") }` */
     copyContent: _Defs.newContentCopyDef,
 
     // Enums.
-    /** MixDOMContextAttach enumeration flags to use with contextAPI.getAllContexts(flags: MixDOMContextAttach). */
-    ContextAttach: MixDOMContextAttach,
     /** For quick getting modes to depth for certain uses (Effect and DataPicker).
      * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
      * - Values are: "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
-    CompareDepthByMode: MixDOMCompareDepthByMode,
+    CompareDepthByMode: MixDOMCompareDepth,
 
 
     // - Class & mixin shortcuts - //
 
     // Common base classes.
-    /** This is a typable base class used for the signals features in many classes (Component, Ref and Host).
+    /** This is a typable base class used for the signals features in many MixDOM classes.
      * - You can use it as a standalone communicator as well or in the component flow: eg. by sharing them via through props, contexts or directly / globally.
      *      * For example, some components can add listeners to the (typed) signals, and you can emit them from elsewhere to, say, trigger a state refresh. 
      * - The signal flow is typically one way: you're not expecting a return value from the sendSignal function.
@@ -164,8 +193,12 @@ export const MixDOM = {
     /** This provides the DataMan features to a custom base class.
      * - Returns the dynamically extended class. Typewise this means: `(Base: ClassType) => ClassType<typeof Base & typeof DataMan>` */
     DataManMixin,
-    /** This class combines DataMan and SignalMan mixins together into one.
-     * This is used as the basis for Host and Context. */
+    /** This class combines `DataMan` and `SignalMan` mixins together in the order: DataSignalMan > DataMan > SignalMan.
+     * - Can be used for stand alone purposes. It's also used as the basis for `Context`.
+     * - Extra notes:
+     *      * Note that `ContextAPI` looks very much like DataSignalMan but is a bit different technically. It holds no data or signals of its own, but refers to signals and data from many named contexts.
+     *      * Likewise there are similar methods available on the `Component` class, but with the "Context" word in them, eg. listenToContextData, sendContextSignal, ... They are just like the signals on component's host's contextAPI, but are automatically disconnected when the component unmounts.
+     */
     DataSignalMan,
     /** Provides the combined DataManSignal features to a custom base class.
      * - Returns the dynamically extended class. Typewise this means: `(Base: ClassType) => ClassType<typeof Base & typeof DataSignalMan>` 
@@ -186,9 +219,6 @@ export const MixDOM = {
 
     // - Pseudo classes - //
 
-    /** Allows to attach multiple contexts simultaneously.
-     * Usage example: `<MixDOM.Contexts cascade={{namedContexts}}><div/></MixDOM.Contexts>` */
-    Contexts: PseudoContexts,
     /** Fragment represent a list of render output instead of stuff under one root.
      * Usage example: `<MixDOM.Fragment><div/><div/></MixDOM.Fragment>` */
     Fragment: PseudoFragment,
@@ -222,7 +252,7 @@ export const MixDOM = {
     newHost,
     /** Create a Context instance. */
     newContext,
-    /** Create multiple named Contexts as a dictionary. (Useful for attaching them and getting types.) */
+    /** Create multiple named Contexts as a dictionary. Useful for attaching them to a ContextAPI - and for getting the combined type for TypeScript purposes. */
     newContexts,
     /** Create a Ref instance. */
     newRef,
@@ -243,12 +273,17 @@ export const MixDOM = {
     shadow: createShadow,
     /** Create a shadow component with ContextAPI by func and omitting the first initProps: (component, contextAPI). The contextAPI is instanced regardless of argument count. */
     shadowWith: createShadowWith,
-    /** Create a ComponentSpread - it's actually just a function with 0 or 1 arguments: (props?).
+    /** Create a SpreadFunc - it's actually just a function with 0 or 1 arguments: (props?).
      * - It's the most performant way to render things (no lifecycle, just spread out with its own pairing scope).
-     * - Note that this simply gives back the original function, unless it has more than 1 arguments, in which case an intermediary arrow function is created.
-     * - Note also that spread functions (unless an arrow function) actually receive a dictionary for the "this" keyword: { props, children }
+     * - Note that this simply gives back the original function, unless it has more than 1 arguments, in which case an intermediary function is created.
+     *      * This intermediary function actually supports feeding in more arguments - this works since a func with (props, ...args) actually has length = 1.
+     *      * If you want to include the props and extra arguments typing into the resulting function use the MixDOM.spreadWith function instead (it also automatically reads the types).
      */
     spread: createSpread,
+    /** Create a SpreadFunc by automatically reading the types for Props and ExtraArgs from the given function. See MixDOM.spread for details.
+     * - The idea is to use the same spread function outside of normal render flow: as a static helper function to produce render defs (utilizing the extra args).
+     */
+    spreadWith: createSpreadWith,
     /** Create a ComponentStream class for  streaming (in / out).
      * - For example, `export const MyStream = MixDOM.createStream();`.
      * - And then to feed content in a render method: `<MyStream>Some content..</MyStream>`.
@@ -258,23 +293,23 @@ export const MixDOM = {
     /** Creates an intermediary component (function) to help produce extra props to an inner component.
      *      * It receives its parent `props` normally, and then uses its `state` for the final props that will be passed to the inner component (as its `props`).
      * - About arguments:
-     *      1. The optional Builder function builds the common external props for all wrapped instances. These are added to the component's natural props.
-     *      2. The optional Mixer function builds unique props for each wrapped instance. If used, the common props are fed to it and the output of the mixer instead represents the final props to add.
+     *      1. The optional Builder function builds the common external props for all wired instances. These are added to the component's natural props.
+     *      2. The optional Mixer function builds unique props for each wired instance. If used, the common props are fed to it and the output of the mixer instead represents the final props to add.
      *      3. The only mandatory argument is the component to be used in rendering, can be a spread func, too. It's the one that receives the mixed props: from the tree flow and from the wiring source by handled by Mixer and Builder functions.
      *      4. Finally you can also define the name of the component (useful for debugging).
      * - Technically this method creates a component function (but could as well be a class extending Component).
-     *      - The important thing is that it's a unique component func/class and it has `api` member that is of `WrapperAPI` type (extending `ShadowAPI`).
+     *      - The important thing is that it's a unique component func/class and it has `api` member that is of `WiredAPI` type (extending `ShadowAPI`).
      *      - When the component is instanced, its static class side contains the same `api` which serves as the connecting interface between the driver and all instances.
      *      - This class can then allow to set and refresh the common props, and trigger should-updates for all the instances and use signals.
-     *      - The `WrapperAPI` extension contains then features related to the automated mixing of parent props and custom data to produce final state -> inner component props.
-     * - Note that when creates a stand alone wrapped component (not through Component component's .createWrapper method), you should drive the updates manually by .setProps.
+     *      - The `WiredAPI` extension contains then features related to the automated mixing of parent props and custom data to produce final state -> inner component props.
+     * - Note that when creates a stand alone wired component (not through Component component's .createWired method), you should drive the updates manually by .setProps.
      */
-    wrapper: createWrapper,
+    wired: createWired,
     /** This returns the original function (to create a mixin class) back but simply helps with typing. 
      * - The idea of a mixin is this: `(Base) => class extends Base { ... }`. So it creates a new class that extends the provided base class.
      *     * In the context of Components the idea is that the Base is Component and then different features are added to it.
      *     * Optionally, when used with mixComponentMixins the flow also supports adding requirements (in addition to that the Base is a Component class).
-     * - To use this method: `const MyMixin = createMixin<RequireInfo, MyMixinInfo>(Base => class _MyMixin extends Base { ... }`
+     * - To use this method: `const MyMixin = MixDOM.mixin<RequiresInfo, MyMixinInfo>(Base => class _MyMixin extends Base { ... }`
      *     * Without the method: `const MyMixin = (Base: ComponentTypeWithClass<RequireInfo>) => class _MyMixin extends (Base as ComponentTypeWithClass<RequireInfo & MyMixinInfo>) { ... }`
      *     * So the trick of this method is simply that the returned function still includes `(Base: Required)`, but _inside_ the func it looks like `(Base: Required & Added)`.
     */
@@ -286,24 +321,24 @@ export const MixDOM = {
     /** This mixes many component functions together. Each should look like: `(initProps, component, cApi?) => MixDOMRenderOutput | MixDOMDoubleRenderer`.
      * - Note that this only "purely" mixes the components together (on the initial render call).
      *      * By default does not put a renderer function in the end but just passes last output (preferring funcs, tho). If you want make sure a renderer is in the end, put last param to true: `(...funcs, true)`
-     *      * Compare this with `mixComponentFuncsWith(..., composer)`, that always returns a renderer. (And its last argument is auto-typed based on all previous.)
+     *      * Compare this with `MixDOM.mixFuncsWith(..., composer)`, that always returns a renderer. (And its last argument is auto-typed based on all previous.)
      * - Each mixable func can also have pre-requirements if typed with `ComponentFuncMixable<RequiredFunc, OwnInfo>` - the typing supports up to 8 funcs and requirements can be filled by any func before.
      *      * Note that you should only use `ComponentFunc` or `ComponentFuncMixable`. Not supported for spread functions (makes no sense) nor component classes (not supported for this flow, see mixComponentClassFunc instead).
      *      * You should type each function most often with `ComponentFunc<Info>` type or `MixDOM.component<Info>()` method. If you leave a function and its params totally untyped, it will break the typing flow. But next one can correct it (at least partially).
-     * - This also supports handling contextual needs (by a func having 3 args) as well as attaching / merging ShadowAPI | WrapperAPI.
+     * - This also supports handling contextual needs (by a func having 3 args) as well as attaching / merging ShadowAPI | WiredAPI.
      * - Note that this does not wrap components one after another (like HOCs). Instead only their initializing closure is used, and the last active renderer.
      *      * Often the purpose is to extend props, state and/or class - especially class data becomes useful to hold info from different closures. Even partial renderers.
      *      * Note that each component func can still override state with: `component.state = { ...myStuff }`. The process detects changes and combines the states together if changed.
      */
     mixFuncs: mixComponentFuncs,
     /** This mixes many component functions together. Each should look like: (initProps, component, cApi?) => MixDOMRenderOutput | MixDOMDoubleRenderer.
-     * - Unlike mixComponentFuncs, the last argument is a mixable func that should compose all together, and its typing comes from all previous combined.
+     * - Unlike MixDOM.mixFuncs, the last argument is a mixable func that should compose all together, and its typing comes from all previous combined.
      *      * If you want to add extra props to the auto typed composer you can add them as an extra last argument: `{} as { props: { someStuff: boolean; } }`.
      *      * Alternatively you can add them to the 2nd last function with: `SomeMixFunc as ExtendComponentFunc<typeof SomeMixFunc, ExtraInfo>`.
      * - Each mixable func can also have pre-requirements if typed with `ComponentFuncMixable<RequiredFunc, OwnInfo>` - the typing supports up to 8 funcs and requirements can be filled by any func before.
      *      * Note that you should only use ComponentFunc or ComponentFuncMixable. Not supported for spread functions (makes no sense) nor component classes (not supported).
      *      * You should type each function most often with ComponentFunc<Info> or MixDOM.component<Info>(). If you leave a function and its params totally untyped, it will break the typing flow. But next one can correct it (at least partially).
-     * - This also supports handling contextual needs (by a func having 3 args) as well as attaching / merging ShadowAPI | WrapperAPI.
+     * - This also supports handling contextual needs (by a func having 3 args) as well as attaching / merging ShadowAPI | WiredAPI.
      * - Note that this does not wrap components one after another (like HOCs). Instead only their initializing closure is used, and the last active renderer.
      *      * Often the purpose is to extend props, state and/or class - especially class data becomes useful to hold info from different closures. Even partial renderers.
      *      * Note that each component func can still override state with: `component.state = { ...myStuff }`. The process detects changes and combines the states together if changed.
@@ -320,19 +355,19 @@ export const MixDOM = {
     mixClassFuncsWith: mixComponentClassFuncsWith,
     /** Mix many mixins together with a custom Component class as the basis to mix on: `(MyClass, MyMixin1, MyMixin2, ...)`.
      * - Note. The last mixin with a render method defined is used as the render method of the combined class.
-     * - Note. If you don't want to define a custom component class as the base, you can use the `mixComponentMixins` function instead (which uses the Component class). These two funcs are split to get better typing experience.
+     * - Note. If you don't want to define a custom component class as the base, you can use the `MixDOM.mixMixins` function instead (which uses the Component class). These two funcs are split to get better typing experience.
      * - For best typing experience, these two functions are split apart into two different functions. However, technically both use the exact same base.
     */
     mixClassMixins: mixComponentClassMixins,
     /** Mix many mixins together into using the basic Component class as the basis to mix on: `(MyMixin1, MyMixin2, ...)`.
      * - Note. The last mixin with a render method defined is used as the render method of the combined class.
-     * - Note. If you want to define a custom base class (extending Component) you can use `mixComponentClassMixins` method whose first argument is a base class.
+     * - Note. If you want to define a custom base class (extending Component) you can use `MixDOM.mixClassMixins` method whose first argument is a base class.
      * - For best typing experience, these two functions are split apart into two different functions. However, technically both use the exact same base.
      */
     mixMixins: mixComponentMixins,
     /** Mix many mixins together into using a Component class as the basis to mix on: `(MyMixin1, MyMixin2, ..., ComposerMixin)`
      * - Note. The last mixin is assumed to be the one to do the rendering and its type is combined from all the previous + the optional extra info given as the very last argument.
-     * - This is like mixComponentFuncsWith but for mixins. On the javascript this function is teh same as MixDOM.mixMixins.
+     * - This is like MixDOM.mixFuncsWith but for mixins. On the javascript this function is teh same as MixDOM.mixMixins.
      */
     mixMixinsWith: mixComponentMixinsWith,
     /** This creates a final component for a list of HOCs with a based component: `(Base, HOC1, HOC2, ... )`

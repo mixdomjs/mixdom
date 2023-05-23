@@ -13,12 +13,14 @@ export enum SignalManFlags {
     OneShot = 1 << 0,
     /** If enabled, calls the listener after a 0ms timeout. Note that this makes the callback's return value always be ignored from the return flow. */
     Deferred = 1 << 1,
+    // /** If enabled, then should return an array of values - as if one callback actually included many callbacks. */
+    // Multi = 1 << 2,
     // Shortcuts.
     None = 0,
-    All = OneShot | Deferred,
+    All = OneShot | Deferred, // | Multi,
 }
 export type SignalListenerFunc = (...args: any[]) => any | void;
-export type SignalListener<Callback extends SignalListenerFunc = SignalListenerFunc> = [ callback: Callback, extraArgs: any[] | null, flags: SignalManFlags, groupId?: any | null ];
+export type SignalListener<Callback extends SignalListenerFunc = SignalListenerFunc> = [ callback: Callback, extraArgs: any[] | null, flags: SignalManFlags, groupId: any | null | undefined, origListeners?: SignalListener[] ];
 export type SignalsRecord = Record<string, SignalListenerFunc>;
 // export type SignalsBook<Signals extends SignalsRecord = {}> = {[ Name in string & keyof Signals]: Array<SignalListener<Signals[Name]>> };
 
@@ -39,16 +41,18 @@ export type SignalSendAsReturn<
  * - Will remove from given listeners array if OneShot flag is used.
  * - If Deferred flag is used, calls the listener after 0ms timeout.
  * - Does not collect return values. Just for emitting out without hassle. */
-export function callListeners(listeners: SignalListener[], args?: any[] | null, ignoreOneShot: boolean = false): void {
+export function callListeners(listeners: SignalListener[], args?: any[] | null): void {
     // Loop each.
-    let i = 0;
-    for (const listener of (ignoreOneShot ? listeners : listeners.slice())) {
+    for (const listener of listeners.slice()) {
         // One shot.
         const flags: SignalManFlags = listener[2] || 0;
-        if (!ignoreOneShot && (flags & SignalManFlags.OneShot))
-            listeners.splice(i, 1);
-        else
-            i++;
+        if (flags & SignalManFlags.OneShot) {
+            // Remove distantly.
+            const distListeners = listener[4] || listeners;
+            const iThis = distListeners.indexOf(listener);
+            if (iThis !== -1)
+                distListeners.splice(iThis, 1);
+        }
         // Deferred.
         if (flags & SignalManFlags.Deferred)
             setTimeout(() => listener[0](...(listener[1] && args ? [...args, ...listener[1]] : args || listener[1] || [])), 0);
@@ -63,22 +67,24 @@ export function callListeners(listeners: SignalListener[], args?: any[] | null, 
  * - To stop at the first accepted answer use "first" mode or "first-true" mode.
  * - Always skips `undefined` as an answer. To skip `null` too use "no-null" mode, or any falsifiable with `no-false`.
  */
-export function askListeners(listeners: SignalListener[], args?: any[] | null, modes?: Array<"" | "no-false" | "no-null" | "last" | "first" | "first-true">, ignoreOneShot: boolean = false): any {
+export function askListeners(listeners: SignalListener[], args?: any[] | null, modes?: Array<"" | "no-false" | "no-null" | "last" | "first" | "first-true">): any {
     // Parse.
     const stopFirst = modes && (modes.includes("first") || modes.includes("first-true"));
     const onlyOne = modes && (stopFirst || modes.includes("last"));
     const noFalse = modes && modes.includes("no-false");
     const noNull = modes && modes.includes("no-null");
-    const answers: any[] = [];
+    let answers: any[] = [];
     // Loop each.
-    let i = 0;
-    for (const listener of (ignoreOneShot ? listeners : listeners.slice())) {
+    for (const listener of listeners.slice()) {
         // One shot.
         const flags: SignalManFlags = listener[2] || 0;
-        if (!ignoreOneShot && (flags & SignalManFlags.OneShot))
-            listeners.splice(i, 1);
-        else
-            i++;
+        if (flags & SignalManFlags.OneShot) {
+            // Remove distantly.
+            const distListeners = listener[4] || listeners;
+            const iThis = distListeners.indexOf(listener);
+            if (iThis !== -1)
+                distListeners.splice(iThis, 1);
+        }
         // Deferred - won't be part of return answer flow.
         if (flags & SignalManFlags.Deferred)
             setTimeout(() => listener[0](...(listener[1] && args ? [...args, ...listener[1]] : args || listener[1] || [])), 0);
@@ -103,33 +109,8 @@ export function askListeners(listeners: SignalListener[], args?: any[] | null, m
     return onlyOne ? answers[0] : answers;
 }
 
-/** The first argument is a double array of signal listeners to support fluent flow and OneShot splicing. Otherwise uses askListeners as the core and functions similarly. */
-export function askListenersBy(allListeners: SignalListener[][], args?: any[] | null, modes?: Array<"" | "no-false" | "no-null" | "last" | "first" | "first-true">): any {
-    // To support OneShot we need the double structure.
-    // .. It's easier to just support it here and then call the flow with reduced array.
-    // .. So if has more than one array, capture one shot here.
-    if (allListeners[1]) {
-        // Loop each.
-        let flattenedListeners: SignalListener[] = [];
-        for (const listeners of allListeners) {
-            flattenedListeners = flattenedListeners.concat(listeners);
-            for (let i=listeners.length-1; i>=0; i--) {
-                if (listeners[i][2] & SignalManFlags.OneShot)
-                    listeners.splice(i, 1);
-            }
-        }
-        // Call.
-        return askListeners(flattenedListeners, args, modes, true);
-    }
-    // There's only one array - just do it normally.
-    return askListeners(allListeners[0], args, modes);
-}
-
 
 // - Mixins - //
-
-
-
 
 export function _SignalBoyMixin<Signals extends SignalsRecord = {}>(Base: ClassType) {
 
@@ -154,9 +135,7 @@ export function _SignalBoyMixin<Signals extends SignalsRecord = {}>(Base: ClassT
         listenTo(name: string, callback: SignalListenerFunc, extraArgs?: any[], flags: SignalManFlags = SignalManFlags.None, groupId?: any | null) {
             // Prepare.
             let listeners = this.signals[name];
-            const listener: SignalListener = [callback, extraArgs || null, flags || SignalManFlags.None ];
-            if (groupId != null)
-                listener.push(groupId);
+            const listener: SignalListener = [callback, extraArgs || null, flags || SignalManFlags.None, groupId ?? null ];
             // New entry.
             if (!listeners)
                 this.signals[name] = listeners = [ listener ];
@@ -166,6 +145,11 @@ export function _SignalBoyMixin<Signals extends SignalsRecord = {}>(Base: ClassT
                 if (!listeners.some((info, index) => info[0] === callback ? listeners[index] = listener : false))
                     listeners.push( listener );
             }
+            // Add technical support for distant OneShots.
+            // .. So if this listener info is passed around alone (without the parenting this.signals[name] array ref),
+            // .. we can still remove it easily from its original array - by just storing that original array here.
+            if (listener[2] & SignalManFlags.OneShot)
+                listener.push(listeners);
             // Call.
             if (this.onListener)
                 this.onListener(name, listeners.indexOf(listener), true);
@@ -220,11 +204,11 @@ export function _SignalBoyMixin<Signals extends SignalsRecord = {}>(Base: ClassT
         }
 
         onListener?(name: string, index: number, wasAdded: boolean): void;
-
+        
     }
 }
 
-export function _SignalManMixin<Signals extends SignalsRecord = {}>(Base: ClassType) {
+export function _SignalManMixin(Base: ClassType) {
 
     return class _SignalMan extends _SignalBoyMixin(Base) {
 
@@ -232,17 +216,19 @@ export function _SignalManMixin<Signals extends SignalsRecord = {}>(Base: ClassT
         // - Sending signals - //
 
         sendSignal(name: string, ...args: any[]): any {
-            if (this.signals[name])
-                callListeners(this.signals[name], args);
+            const listeners = this.getListenersFor ? this.getListenersFor(name) : this.signals[name];
+            if (listeners)
+                callListeners(listeners, args);
         }
 
         // Note. This method assumes modes won't be modified during the call (in case uses delay or await).
         // .. This method can be extended, so uses string | string[] basis for modes in here.
         sendSignalAs(modes: string | string[], name: string, ...args: any[]): any {
             // Parse.
-            const m = (typeof modes === "string" ? [ modes ] : modes) as Array<"" | "pre-delay" | "delay" | "await" | "last" | "first" | "first-true" | "no-false" | "no-null">;
+            const m = (typeof modes === "string" ? [ modes ] : modes) as Array<"" | "pre-delay" | "delay" | "await" | "multi" | "last" | "first" | "first-true" | "no-false" | "no-null">;
             const isDelayed = m.includes("delay") || m.includes("pre-delay");
             const stopFirst = m.includes("first") || m.includes("first-true");
+            const multi = m.includes("multi") || !stopFirst && !m.includes("last");
             // Return a promise.
             if (m.includes("await"))
                 return new Promise<any>(async (resolve) => {
@@ -250,34 +236,41 @@ export function _SignalManMixin<Signals extends SignalsRecord = {}>(Base: ClassT
                     if (isDelayed)
                         await this.afterRefresh(m.includes("delay"));
                     // No listeners.
-                    if (!this.signals[name])
-                        return m.includes("last") || stopFirst ? resolve(undefined) : resolve([]);
+                    const listeners = this.getListenersFor ? this.getListenersFor(name) : this.signals[name];
+                    if (!listeners)
+                        return multi ? resolve([]) : resolve(undefined);
                     // Resolve with answers.
                     // .. We have to do the four checks here manually, as we need to await the answers first.
-                    let answers = (await Promise.all(askListeners(this.signals[name], args))).filter(a => !(a === undefined || a == null && m.includes("no-null") || !a && m.includes("no-false")));
-                    if (m.includes("last"))
-                        resolve(answers[-1]);
-                    else if (stopFirst) {
-                        if (m.includes("first-true"))
-                            answers = answers.filter(val => val);
-                        resolve(answers[0]);
-                    }
+                    let answers = (await Promise.all(askListeners(listeners, args))).filter(a => !(a === undefined || a == null && m.includes("no-null") || !a && m.includes("no-false")));
+                    if (stopFirst && m.includes("first-true"))
+                        answers = answers.filter(val => val);
+                    // Handle answers.
+                    const nAnswers = answers.length;
+                    if (!nAnswers)
+                        resolve(multi ? [] : undefined);
+                    else if (stopFirst)
+                        resolve(multi ? [answers[0]] : answers[0]);
+                    else if (m.includes("last"))
+                        resolve(multi ? [answers[nAnswers - 1]] : answers[nAnswers - 1]);
                     else
-                        resolve(answers);
+                        resolve(answers); // Must be in multi.
                 });
             // No promise, nor delay.
-            if (!isDelayed)
-                return this.signals[name] ? askListeners(this.signals[name], args, m as any[]) : m.includes("last") || stopFirst ? undefined : [];
+            if (!isDelayed) {
+                const listeners = this.getListenersFor ? this.getListenersFor(name) : this.signals[name];
+                return listeners ? askListeners(listeners, args, m as any[]) : m.includes("last") || stopFirst ? undefined : [];
+            }
             // Delayed without a promise - no return value.
             (async () => {
                 await this.afterRefresh(m.includes("delay"));
-                if (this.signals[name]) {
+                const listeners = this.getListenersFor ? this.getListenersFor(name) : this.signals[name];
+                if (listeners) {
                     // Stop at first. Rarity, so we just support it through askListeners without getting the value.
                     if (stopFirst)
-                        askListeners(this.signals[name], args, m as any[]);
+                        askListeners(listeners, args, m as any[]);
                     // Just call.
                     else
-                        callListeners(this.signals[name], args);
+                        callListeners(listeners, args);
                 }
             })();
             // No value to return.
@@ -289,6 +282,8 @@ export function _SignalManMixin<Signals extends SignalsRecord = {}>(Base: ClassT
             return new Promise<void>(resolve => setTimeout(resolve, fullDelay ? 1 : 0));
         }
 
+        getListenersFor?(signalName: string): SignalListener[] | undefined;
+    
     }
 }
 
@@ -312,7 +307,7 @@ export const SignalManMixin = _SignalManMixin as ClassMixer<SignalManType>;
 // - SignalBoy class (without sending features) - //
 
 /** This is like SignalMan but only provides listening: the sendSignal, sendSignalAs and afterRefresh methods are deleted (for clarity of purpose). */
-export class SignalBoy<Signals extends SignalsRecord = {}> extends _SignalBoyMixin(Object) { }
+export class SignalBoy<Signals extends SignalsRecord = {}> extends (_SignalBoyMixin(Object) as ClassType) { }
 export interface SignalBoy<Signals extends SignalsRecord = {}> { 
     
     // _Signals: Signals;
@@ -347,8 +342,8 @@ export interface SignalMan<Signals extends SignalsRecord = {}> extends SignalBoy
      * - "pre-delay": This is like "delay" but uses 0ms timeout on the standalone SignalMan. (On Components, Hosts and Contexts it's delayed to their update cycle.)
      * - "await": Awaits each listener (simultaneously) and returns a promise. By default returns the last non-`undefined` value, combine with "multi" to return an array of awaited values (skipping `undefined`).
      *      * Exceptionally if "delay" is on, and there's no "await" then can only return `undefined`, as there's no promise to capture the timed out returns.
-     * - "multi": This is the default mode: returns an array of values ignoring any `undefined`.
-     *      * Inputting this mode makes no difference. It's just provided for typing convenience when wants a list of answers without anything else (instead of inputting "").
+     * - "multi": Can be used to force array return even if using "last", "first" or "first-true" - which would otherwise switch to a single value return mode.
+     *      * Note that by default, is in multi mode, except if a mode is used that indicates a single value return.
      * - "last": Use this to return the last acceptable value (by default ignoring any `undefined`) - instead of an array of values.
      * - "first": Stops the listening at the first value that is not `undefined` (and not skipped by "no-false" or "no-null"), and returns that single value.
      *      * Note that "first" does not stop the flow when using "await" as the async calls are made simultaneously. But it returns the first acceptable value.
@@ -363,11 +358,15 @@ export interface SignalMan<Signals extends SignalsRecord = {}> extends SignalBoy
         HasAwait extends boolean = Mode extends string[] ? Mode[number] extends "await" ? true : false : Mode extends "await" ? true : false,
         HasLast extends boolean = Mode extends string[] ? Mode[number] extends "last" ? true : false : Mode extends "last" ? true : false,
         HasFirst extends boolean = Mode extends string[] ? Mode[number] extends "first" ? true : Mode[number] extends "first-true" ? true : false : Mode extends "first" ? true : Mode extends "first-true" ? true : false,
+        HasMulti extends boolean = Mode extends string[] ? Mode[number] extends "multi" ? true : false : Mode extends "multi" ? true : false,
         HasDelay extends boolean = Mode extends string[] ? Mode[number] extends "delay" ? true : false : Mode extends "delay" ? true : false,
+        UseSingle extends boolean = true extends HasMulti ? false : HasFirst | HasLast,
         UseReturnVal extends boolean = true extends HasAwait ? true : true extends HasDelay ? false : true,
-    >(modes: Mode | Mode[], name: Name, ...args: Parameters<Signals[Name]>): true extends UseReturnVal ? SignalSendAsReturn<ReturnType<Signals[Name]>, HasAwait, HasLast | HasFirst> : undefined;
+    >(modes: Mode | Mode[], name: Name, ...args: Parameters<Signals[Name]>): true extends UseReturnVal ? SignalSendAsReturn<ReturnType<Signals[Name]>, HasAwait, UseSingle> : undefined;
     /** This returns a promise that is resolved after the "pre-delay" or "delay" cycle has finished.
      * - By default uses a timeout of 1ms for fullDelay (for "delay") and 0ms otherwise (for "pre-delay").
      * - This is used internally by the sendSignalAs method with "pre-delay" or "delay". The method can be overridden to provide custom timing. */
     afterRefresh(fullDelay?: boolean): Promise<void>;
+    /** Optional assignable method. If used, then this will be used for the signal sending related methods to get all the listeners - instead of this.signals[name]. */
+    getListenersFor?(signalName: string & keyof Signals): SignalListener[] | undefined;
 }

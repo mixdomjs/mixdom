@@ -3,8 +3,7 @@
 // - Imports - //
 
 import { SVGAttributesBy, SVGGraphicalEventAttributes } from "./_SVGTypes";
-import { SignalListener, SignalListenerFunc, SignalsRecord } from "../classes/SignalMan";
-import { SpreadFunc } from "../classes/ComponentSpread";
+import { SignalListener, SignalsRecord } from "../classes/SignalMan";
 import {
     PseudoElement,
     PseudoElementProps,
@@ -14,14 +13,12 @@ import {
     PseudoPortalProps,
     PseudoEmpty,
     PseudoEmptyProps,
-    PseudoContexts,
-    PseudoContextsProps
  } from "../classes/ComponentPseudos";
 import { ContentBoundary, SourceBoundary } from "../classes/Boundary";
 import { ContentClosure } from "../classes/ContentClosure";
 import { RefBase, RefDOMSignals } from "../classes/Ref";
-import { Component, ComponentFunc, ComponentInfo, ComponentSignals, ComponentTypeAny } from "../classes/Component";
-import { ComponentStream, ComponentStreamType } from "../classes/ComponentStream";
+import { ComponentSignals, ComponentTypeAny } from "../classes/Component";
+import { ComponentStreamType } from "../classes/ComponentStream";
 import { Host } from "../classes/Host";
 import { Context } from "../classes/Context";
 
@@ -29,10 +26,12 @@ import { Context } from "../classes/Context";
 // - General - //
 
 // Helpers for object-likes: dictionaries / classes.
-export type Dictionary<V = any> = Record<string, V>;
-export type RecordableType<K extends string> = Partial<Record<K, any>> | Array<K> | Set<K>; // Iterable<K>;
-export type Intersect<T> = (T extends any ? ((x: T) => 0) : never) extends ((x: infer R) => 0) ? R : never;
 export type Awaited<T> = T extends PromiseLike<infer U> ? U : T
+export type Intersect<T> = (T extends any ? ((x: T) => 0) : never) extends ((x: infer R) => 0) ? R : never;
+export type RecordableType<K extends string> = Partial<Record<K, any>> | Array<K> | Set<K>; // Iterable<K>;
+export type Dictionary<V = any> = Record<string, V>;
+export type CleanDictionary<T> = {[Key in keyof T]: T[Key]; };
+export type CleanDictionaryWith<T, V = {}> = {[Key in keyof T]: [T[Key]] extends [V] ? T[Key] : never; };
 export type ClassType<T = {}, Args extends any[] = any[]> = new (...args: Args) => T;
 export type ClassMixer<TExtends extends ClassType> = <TBase extends ClassType>(Base: TBase) => Omit<TBase & TExtends, "new"> & { new (...args: GetConstructorArgs<TExtends>): GetConstructorReturn<TBase> & GetConstructorReturn<TExtends>; };
 export type GetConstructorArgs<T> = T extends new (...args: infer U) => any ? U : never;
@@ -304,7 +303,6 @@ export type MixDOMSourceBoundaryId = string;
 
 export type MixDOMPseudoTag<Props extends Dictionary = {}> =
     | ([Props] extends [PseudoFragmentProps] ? typeof PseudoFragment<Props> : never)
-    | ([Props] extends [PseudoContextsProps] ? typeof PseudoContexts<{}, Props> : never)
     | ([Props] extends [PseudoElementProps] ? typeof PseudoElement<HTMLTags | SVGTags, Props> : never)
     | ([Props] extends [PseudoPortalProps] ? typeof PseudoPortal<Props> : never)
     | ([Props] extends [PseudoEmptyProps] ? typeof PseudoEmpty<Props> : never)
@@ -335,102 +333,33 @@ export type MixDOMHydrationValidator = (item: MixDOMHydrationItem | null, treeNo
 export type MixDOMHydrationSuggester = (item: MixDOMHydrationItem | null, treeNode: MixDOMTreeNodeDOM, tag: DOMTags | "_" | "", key: any) => Node | MixDOMHydrationItem | null;
 
 
-// - Contextual - //
-
-export type MixDOMContextsAll = Record<string, Context<any, SignalsRecord>>;
-export type MixDOMContextsAllOrNull<AllContexts extends MixDOMContextsAll = {}> = { [Name in keyof AllContexts]: AllContexts[Name] | null; };
-
-// This works by iteration data down beforehands and can thus be used to offer suggestions for each data key.
-export type GetJoinedDataKeysFromContexts<Contexts extends MixDOMContextsAll> = {[CtxName in string & keyof Contexts]: GetJoinedDataKeysFrom<Contexts[CtxName]["data"], CtxName>}[string & keyof Contexts];
-export type GetJoinedSignalKeysFromContexts<Contexts extends MixDOMContextsAll> = {[CtxName in string & keyof Contexts]: keyof Contexts[CtxName]["_Signals"] extends string ? `${CtxName}.${keyof Contexts[CtxName]["_Signals"]}` : never; }[string & keyof Contexts];
-// This is a helper for getting data from contexts in the form of "contextName.some.data.location".
-export type GetDataByContextString<Key extends string, Contexts extends MixDOMContextsAll> = GetDataByContextKeys<SplitOnce<Key, ".">, Contexts>;
-type GetDataByContextKeys<CtxKeys extends string[], Contexts extends MixDOMContextsAll> = 
-    [CtxKeys[0]] extends [keyof Contexts] ? 
-        [CtxKeys[1]] extends [string] ?
-            PropType<Contexts[CtxKeys[0]]["data"], CtxKeys[1], never>
-        : Contexts[CtxKeys[0]]["data"]
-    : never;
-
-
-/** The flags for checking what kind of context change happened. */
-export enum MixDOMContextRefresh {
-    // Flags.
-    Data = 1 << 0,
-    Actions = 1 << 1,
-    Otherwise = 1 << 2,
-    DoRefresh = 1 << 3,
-    // NoRefresh = 1 << 4,
-    // Shortcuts.
-    None = 0,
-    Contextual = Data | Actions,
-    All = Contextual | Otherwise
-};
-
-/** The flags for each way to attach contexts. */
-export enum MixDOMContextAttach {
-    // Flags.
-    /** The contexts that are inserted somewhere up the MixDOMTreeNode structure cascading down to us. */
-    Cascading = 1 << 0,
-    /** The contexts attached by the parent using the `contexts` prop. */
-    Parent = 1 << 1,
-    /** The contexts manually overridden by `live.overrideContext()` or alike. */
-    Overridden = 1 << 2,
-    // Shortcuts.
-    None = 0,
-    /** Shortcut for all types. */
-    All = Cascading | Parent | Overridden
-};
-
-
-// - Helper - //
-
-/** For quick getting modes to depth for certain uses (Effect and DataPicker).
- * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
- * - Values are: "never" = -3, "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
-export enum MixDOMCompareDepthByMode {
-    never = -3,
-    always = -2,
-    deep = -1,
-    changed = 0,
-    shallow = 1,
-    double = 2,
-};
-
-
 // - PRE Props - //
 
-/** This is the basis for PRE props: including all internal props. The POST props are the ones that the user defines. */
 export interface MixDOMPreBaseProps {
     /** Disable the def altogether - including all contents inside. (Technically makes the def amount to null.) */
     _disable?: boolean;
     /** Attach key for moving the def around. */
     _key?: any;
-    /** Attach one or many forwarded refs. */
+    /** Attach one or many refs. */
     _ref?: RefBase | RefBase[];
 }
 export interface MixDOMPreProps<Signals extends SignalsRecord = {}> extends MixDOMPreBaseProps {
     /** Attach signals. */
     _signals?: Partial<Signals> | null;
-    /** Attach named contexts on a child - will not cascade down. */
+    /** Attach named contexts on a child component. Any changes in these will call component.contextAPI.setContext() accordingly. */
     _contexts?: Partial<Record<string, Context | null>> | null;
 }
 /** Dev. note. The current decision is to rely on JSX global declaration and not include MixDOMPreComponentProps into each Component type (including funcs) or constructor(props).
  * - However, the _signals are reliant on having more typed info to be used nicely. So that's why we have this type specifically. The _signals will not be there during the render cycle, tho. 
- * - Note that above decision relies mainly on two things: 1. The JSX intrinsic declaration is anyway needed for DOM elements, 2. It's very confusing to have _contexts, _key appearing in the type inside render method / func.
+ * - Note that above decision relies mainly on two things: 1. The JSX intrinsic declaration is anyway needed for DOM elements, 2. It's very confusing to have _key and _disable appearing in the type inside render method / func.
  */
 export type MixDOMPreComponentOnlyProps<Signals extends SignalsRecord = {}> = {
     /** Attach signals to component. Exceptionally the _signals prop is exposed even tho it will not be there during the render cycle. It's exposed due to getting better typing experience when using it in TSX. */
     _signals?: Partial<ComponentSignals & Signals> | null;
-    /** Attach contexts to component. Exceptionally we provide _contexts prop as well here, so that JSX IntrinsicAttributes doesn't need to include them for dom elements. */
+    /** Attach named contexts on a child component. Any changes in these will call component.contextAPI.setContext() accordingly. */
     _contexts?: Partial<Record<string, Context | null>> | null;
 }
-export type MixDOMPreComponentProps<Props extends Dictionary = {}, Signals extends SignalsRecord = {}> = MixDOMPreBaseProps & {
-    /** The signals callback typing collection. */
-    _signals?: Partial<ComponentSignals & Signals> | null;
-    /** Attach named contexts on a child - will not cascade down. */
-    _contexts?: Partial<Record<string, Context | null>> | null;
-} & Props;
+export type MixDOMPreComponentProps<Signals extends SignalsRecord = {}> = MixDOMPreBaseProps & MixDOMPreComponentOnlyProps<Signals>;
 
 /** This combines all the internal dom props together: "_key", "_ref", "_disable" and _"signals" with its dom specific listeners. */
 export interface MixDOMPreDOMProps extends MixDOMPreBaseProps {
@@ -483,19 +412,11 @@ export type MixDOMRenderOutput = MixDOMRenderOutputSingle | MixDOMRenderOutputMu
 export interface MixDOMComponentUpdates<Props extends Dictionary = {}, State = {}> {
     props?: Props;
     state?: State;
-    children?: MixDOMDefTarget[];
-    streamed?: Map<ComponentStream, MixDOMDefTarget[]>;
 }
 
 export interface MixDOMComponentPreUpdates<Props extends Dictionary = {}, State = {}> {
     props?: Props;
     state?: State;
-    children?: MixDOMDefTarget[];
-    streamed?: Map<ComponentStream, MixDOMDefTarget[]>;
-    /** Array of context names that have changed. Should be unique, so if merging use new Set(...) or other means to keep unique. */
-    contextual?: string[];
-    /** Collects the callbacks that need refreshing due to changed host data. */
-    host?: SignalListenerFunc[];
     force?: boolean | "all";
 }
 
@@ -514,8 +435,6 @@ export type MixDOMUpdateCompareMode = "never" | "always" | "changed" | "shallow"
 export interface MixDOMUpdateCompareModesBy {
     props: MixDOMUpdateCompareMode | number;
     state: MixDOMUpdateCompareMode | number;
-    children: MixDOMUpdateCompareMode | number;
-    streamed: MixDOMUpdateCompareMode | number;
 }
 
 
@@ -596,6 +515,14 @@ export type MixDOMChangeInfos = [ MixDOMRenderInfo[], MixDOMSourceBoundaryChange
 /** Describes what kind of def it is.
  * - Compared to treeNode.type, we have extra: "content" | "element" | "fragment". But don't have "root" (or ""). */
 export type MixDOMDefType = "dom" | "content" | "element" | "portal" | "boundary" | "pass" | "contexts" | "fragment" | "host";
+type MixDOMSpreadLinks = {
+    /** This contains any true and copy passes. It's the point where the inner spread stopped processing, and the parent spread can continue from it. */
+    passes: MixDOMDefTarget[];
+    /** This contains any MixDOM.WithContent components, if they were not sure whether they actually have content or not (due to only having "pass" defs without any solid stuff). 
+     * - The structure is [ childDefs, withDef ], where childDefs are the children originally passed to the spread.
+     */
+    withs: [childDefs: MixDOMDefTarget[], withDef: MixDOMDefTarget & { props: { hasContent?: boolean; }; }][];
+};
 
 interface MixDOMDefBase<Props extends MixDOMProcessedDOMProps = MixDOMProcessedDOMProps> {
 
@@ -615,8 +542,8 @@ interface MixDOMDefBase<Props extends MixDOMProcessedDOMProps = MixDOMProcessedD
     // Common optional.
     key?: any;
     attachedRefs?: RefBase[];
-    attachedContexts?: Record<string, Context | null>;
     attachedSignals?: Partial<Record<string, SignalListener[0]>>;
+    attachedContexts?: Partial<Record<string, Context | null>>;
 
     // Common to types: "dom" | "element" | "boundary".
     props?: Props;
@@ -624,10 +551,9 @@ interface MixDOMDefBase<Props extends MixDOMProcessedDOMProps = MixDOMProcessedD
     // Others - only for specific types.
     // .. Fragment.
     isArray?: boolean;
-    withContent?: boolean | (() => ComponentStreamType);
-    StreamOut?: ComponentStreamType | null;
     scopeType?: "spread" | "spread-pass" | "spread-copy";
     scopeMap?: Map<MixDOMDefKeyTag, MixDOMDefApplied[]>;
+    spreadLinks?: MixDOMSpreadLinks;
     // .. Content.
     domContent?: MixDOMContentSimple | null;
     domHTMLMode?: boolean;
@@ -639,12 +565,12 @@ interface MixDOMDefBase<Props extends MixDOMProcessedDOMProps = MixDOMProcessedD
     // .. Pass.
     contentPass?: ContentClosure | null;
     contentPassType?: "pass" | "copy";
-    getContentStream?: () => ComponentStreamType;
+    getStream?: () => ComponentStreamType;
     // streamNeeds?: boolean | "temp" | null;
-    // .. Contexts.
-    contexts?: Record<string, Context | null> | null;
     // .. Host.
     host?: Host;
+    // .. Boundary.
+    hasPassWithin?: true;
 
     // Other.
     treeNode?: MixDOMTreeNode;
@@ -688,15 +614,21 @@ export interface MixDOMDefBoundary<Props extends MixDOMProcessedDOMProps = MixDO
     MIX_DOM_DEF: "boundary";
     tag: MixDOMComponentTag;
     props: Props;
+    /** Internal marker put on the applied def to mark that was passed in a content pass.
+     * - This helps to form a parental chain of closures that pass the content down.
+     * - This in turn helps to make WithContent feature work recursively.
+     * - Note that alternatively this could be after-checked in contentClosure.preRefresh.
+     *      * However, it's more performant to just go check for this while pairing defs.
+     */
+    hasPassWithin?: true;
 }
 export interface MixDOMDefFragment extends MixDOMDefBase {
     MIX_DOM_DEF: "fragment";
     tag: null;
     isArray?: boolean;
-    withContent?: boolean | (() => ComponentStreamType);
-    /** Used to store the previous stream out - for comparison. (The streamed withContent fragments are auto-keyed.) */
-    StreamOut?: ComponentStreamType | null;
-    scopeType?: "spread" | "spread-pass" | "spread-copy";
+    scopeType?: MixDOMDefBase["scopeType"];
+    /** This helps to optimize nested spread processing, as well as handle WithContent recursively for spreads. */
+    spreadLinks?: MixDOMDefBase["spreadLinks"];
     /** Scope map is used only on the applied def side.
      * - This is used to isolate the scopes for the pairing process.
      * - For example, any spread function outputs, and any content pass copies in them, should be isolated.
@@ -709,17 +641,9 @@ export interface MixDOMDefPass extends MixDOMDefBase {
     contentPass?: ContentClosure | null;
     contentPassType?: "pass" | "copy";
     /** If is about a stream, this is assigned and gets the common static class part for a stream component. */
-    getContentStream?: () => ComponentStreamType;
+    getStream?: () => ComponentStreamType;
     // /** If the pass refers to a stream, the locally set needs are here - they are tied to this particular pass and set while creating the def. */
     // streamNeeds?: boolean | "temp" | null;
-    // /** If the pass refers to a contextual stream, the contexts from the last run are stored here. */
-    // contexts?: Record<string, Context | null> | null;
-    props?: never;
-}
-export interface MixDOMDefContexts extends MixDOMDefBase {
-    MIX_DOM_DEF: "contexts";
-    tag: null;
-    contexts: Record<string, Context | null> | null;
     props?: never;
 }
 export interface MixDOMDefHost extends MixDOMDefBase {
@@ -728,7 +652,7 @@ export interface MixDOMDefHost extends MixDOMDefBase {
     host: Host;
     props?: never;
 }
-export type MixDOMDefTypesAll = MixDOMDefDOM | MixDOMDefContent | MixDOMDefContentInner | MixDOMDefElement | MixDOMDefPortal | MixDOMDefBoundary | MixDOMDefPass | MixDOMDefContexts | MixDOMDefFragment | MixDOMDefHost;
+export type MixDOMDefTypesAll = MixDOMDefDOM | MixDOMDefContent | MixDOMDefContentInner | MixDOMDefElement | MixDOMDefPortal | MixDOMDefBoundary | MixDOMDefPass | MixDOMDefFragment | MixDOMDefHost;
 
 export interface MixDOMDefAppliedBase extends MixDOMDefBase {
     childDefs: MixDOMDefApplied[];
@@ -803,9 +727,6 @@ export interface MixDOMTreeNodePortal extends MixDOMTreeNodeBaseWithDef {
     /** For portals, the domNode refers to the external container. */
     domNode: MixDOMTreeNodeBase["domNode"];
 };
-export interface MixDOMTreeNodeContexts extends MixDOMTreeNodeBaseWithDef {
-    type: "contexts";
-};
 export interface MixDOMTreeNodeBoundary extends MixDOMTreeNodeBaseWithDef {
     type: "boundary";
     /** This will be set to the treeNode right after instancing the source boundary. */
@@ -820,7 +741,7 @@ export interface MixDOMTreeNodePass extends MixDOMTreeNodeBaseWithDef {
 export interface MixDOMTreeNodeHost extends MixDOMTreeNodeBaseWithDef {
     type: "host";
 };
-export type MixDOMTreeNode = MixDOMTreeNodeEmpty | MixDOMTreeNodeDOM | MixDOMTreeNodePortal | MixDOMTreeNodeContexts | MixDOMTreeNodeBoundary | MixDOMTreeNodePass | MixDOMTreeNodeHost | MixDOMTreeNodeRoot;
+export type MixDOMTreeNode = MixDOMTreeNodeEmpty | MixDOMTreeNodeDOM | MixDOMTreeNodePortal | MixDOMTreeNodeBoundary | MixDOMTreeNodePass | MixDOMTreeNodeHost | MixDOMTreeNodeRoot;
 
 
 interface DefPseudo {
@@ -834,15 +755,15 @@ interface DefPseudo {
     domElement?: HTMLElement | SVGElement | null;
     _skipDef?: true;
 }
-export interface MixDOMDefAppliedPseudo extends DefPseudo { childDefs: MixDOMDefApplied[]; scopeType?: MixDOMDefFragment["scopeType"]; scopeMap?: MixDOMDefFragment["scopeMap"]; action?: MixDOMDefAppliedBase["action"] };
-export interface MixDOMDefTargetPseudo extends DefPseudo { childDefs: MixDOMDefTarget[]; scopeType?: MixDOMDefFragment["scopeType"]; scopeMap?: MixDOMDefFragment["scopeMap"]; withContent?: boolean | (() => ComponentStreamType); };
+export interface MixDOMDefTargetPseudo extends DefPseudo { childDefs: MixDOMDefTarget[]; scopeType?: MixDOMDefFragment["scopeType"]; scopeMap?: MixDOMDefFragment["scopeMap"]; }; // withContent?: boolean | (() => ComponentStreamType); };
+export interface MixDOMDefAppliedPseudo extends DefPseudo { childDefs: MixDOMDefApplied[]; scopeType?: MixDOMDefFragment["scopeType"]; scopeMap?: MixDOMDefFragment["scopeMap"]; action?: MixDOMDefAppliedBase["action"]; hasPassWithin?: true; };
 
 
 // - Content envelope - //
 
 export interface MixDOMContentEnvelope {
-    appliedDef: MixDOMDefApplied;
-    targetDef: MixDOMDefTarget;
+    applied: MixDOMDefApplied;
+    target: MixDOMDefTarget;
 }
 
 

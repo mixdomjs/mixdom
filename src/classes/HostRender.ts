@@ -812,7 +812,7 @@ export class HostRender {
 
     static SIMPLE_TAGS: string[] = ["img"];
     static SPECIAL_PROPS: Record<string, "other" | "render" | undefined> = { innerHTML: "render", outerHTML: "render", textContent: "render", innerText: "render", outerText: "render", style: "other", data: "other", className: "other" };
-    static PASSING_TYPES: Partial<Record<MixDOMTreeNodeType | MixDOMDefType, true>> = { boundary: true, pass: true, contexts: true, host: true, fragment: true }; // Let's add fragment here for def side.
+    static PASSING_TYPES: Partial<Record<MixDOMTreeNodeType | MixDOMDefType, true>> = { boundary: true, pass: true, host: true, fragment: true }; // Let's add fragment here for def side.
     static LISTENER_PROPS = [
     "Abort","Activate","AnimationCancel","AnimationEnd","AnimationIteration","AnimationStart","AuxClick","Blur","CanPlay","CanPlayThrough","Change","Click","Close","ContextMenu","CueChange","DblClick","Drag","DragEnd","DragEnter","DragLeave","DragOver","DragStart","Drop","DurationChange","Emptied","Ended","Error","Focus","FocusIn","FocusOut","GotPointerCapture","Input","Invalid","KeyDown","KeyPress","KeyUp","Load","LoadedData","LoadedMetaData","LoadStart","LostPointerCapture","MouseDown","MouseEnter","MouseLeave","MouseMove","MouseOut","MouseOver","MouseUp","Pause","Play","Playing","PointerCancel","PointerDown","PointerEnter","PointerLeave","PointerMove","PointerOut","PointerOver","PointerUp","Progress","RateChange","Reset","Resize","Scroll","SecurityPolicyViolation","Seeked","Seeking","Select","Stalled","Submit","Suspend","TimeUpdate","Toggle","TouchCancel","TouchEnd","TouchMove","TouchStart","TransitionCancel","TransitionEnd","TransitionRun","TransitionStart","VolumeChange","Waiting","Wheel"].reduce((acc,curr) => (acc["on" + curr]=curr.toLowerCase(),acc), {}) as Record<ListenerAttributeNames, (e: Event) => void>;
 
@@ -942,7 +942,7 @@ export class HostRender {
         let tParent: MixDOMTreeNode | null = fromSelf ? fromTreeNode : fromTreeNode.parent;
         let newDomNode: Node | null = domNode;
         // Go up level by level until we're not the first child.
-        // .. Note that even if the tParent.domNode === newDomNode, we must still go further. For example to account for: dom > contexts > boundary > dom.
+        // .. Note that even if the tParent.domNode === newDomNode, we must still go further. For example to account for: dom > boundary > boundary > dom.
         while (tParent) {
             // We've hit a non-passing tag (eg. a "dom" tag).
             // .. However, on fromSelf mode, let's continue if this was the first one, in which case tParent === tNode.

@@ -10,8 +10,8 @@ import {
     MixDOMRenderOutput,
     Intersect,
 } from "../static/_Types";
-import { _Defs } from "../static/_Defs";
-import { mixDOMContent } from "../MixDOM";
+import { newDef } from "../static/_Defs";
+import { MixDOMContent } from "../MixDOM";
 import { SpreadFunc } from "./ComponentSpread";
 import {
     Component,
@@ -23,53 +23,40 @@ import {
     ComponentTypeWithClass,
     ComponentWith,
     GetComponentFuncInfo,
-    GetComponentInfo
+    GetComponentInfo,
+    ComponentContextAPI
 } from "./Component";
-import { ContextAPI } from "./ContextAPI";
-import { ComponentShadowFunc, ShadowAPI } from "./ComponentShadow";
-import { ComponentWrapperFunc, WrapperAPI } from "./ComponentWrapper";
+import { ComponentShadowFunc, ComponentShadowAPI } from "./ComponentShadow";
+import { ComponentWiredFunc, ComponentWiredAPI } from "./ComponentWired";
 
 
-// - Helper to merge ShadowAPI and WrapperAPIs - //
+// - Helper to merge ComponentShadowAPI and ComponentWiredAPIs - //
 
-/** This creates a new ShadowAPI or WrapperAPI and merges updateModes and signals.
- * - If is a WrapperAPI also attaches the last builtProps member, and onBuildProps and onMixProps methods.
+/** This creates a new ComponentShadowAPI or ComponentWiredAPI and merges updateModes and signals.
+ * - If is a ComponentWiredAPI also attaches the last builtProps member, and onBuildProps and onMixProps methods.
  */
-export function mergeShadowWrapperAPIs(apis: Array<ShadowAPI>): ShadowAPI;
-export function mergeShadowWrapperAPIs(apis: Array<WrapperAPI>): WrapperAPI;
-export function mergeShadowWrapperAPIs(apis: Array<ShadowAPI | WrapperAPI>): ShadowAPI | WrapperAPI {
+export function mergeShadowWiredAPIs(apis: Array<ComponentShadowAPI>): ComponentShadowAPI;
+export function mergeShadowWiredAPIs(apis: Array<ComponentWiredAPI>): ComponentWiredAPI;
+export function mergeShadowWiredAPIs(apis: Array<ComponentShadowAPI | ComponentWiredAPI>): ComponentShadowAPI | ComponentWiredAPI {
     // Create new API.
-    const isWrapper = apis.some(api => api instanceof WrapperAPI);
-    const finalAPI = (isWrapper ? new WrapperAPI() : new ShadowAPI()) as WrapperAPI; // For easier typing below.
+    const isWired = apis.some(api => api instanceof ComponentWiredAPI);
+    const finalAPI = (isWired ? new ComponentWiredAPI() : new ComponentShadowAPI()) as ComponentWiredAPI; // For easier typing below.
     // Combine infos.
     for (const api of apis) {
-
-
-        // Object.getOwnPropertyNames(ThisClass.prototype).forEach((name) => {
-        //     Object.defineProperty(
-        //         BaseClass.prototype,
-        //         name,
-        //         Object.getOwnPropertyDescriptor(ThisClass.prototype, name) ||
-        //         Object.create(null)
-        //     );
-        // });
-
-
-
         // Merge update modes.
         if (api.updateModes) {
             if (!finalAPI.updateModes)
                 finalAPI.updateModes = {};
             for (const type in api.updateModes)
-                finalAPI.updateModes[type] = { ...finalAPI.updateModes[type] || {}, ...api.updateModes[type] };
+                finalAPI.updateModes[type] = { ...finalAPI.updateModes[type], ...api.updateModes[type] };
         }
         // Combine listeners.
         for (const signalName in api.signals)
             finalAPI.signals[signalName] = [ ...finalAPI.signals[signalName] || [], ...api.signals[signalName] ];
-        // WrapperAPI specials.
+        // ComponentWiredAPI specials.
         // .. Note that this kind of mixing builtProps, onBuildProps and onMixProps from here and there is kind of messy.
         // .. However, very likely this is never used like this. Furthermore this whole function is also probably almost never used.
-        if (api instanceof WrapperAPI) {
+        if (api instanceof ComponentWiredAPI) {
             // Use the latest builtProps.
             if (api.builtProps)
                 finalAPI.builtProps = api.builtProps;
@@ -134,7 +121,7 @@ export type CombineInfosFromComponentFuncs<
  * - Each mixable func can also have pre-requirements if typed with `ComponentFuncMixable<RequiredFunc, OwnInfo>` - the typing supports up to 8 funcs and requirements can be filled by any func before.
  *      * Note that you should only use `ComponentFunc` or `ComponentFuncMixable`. Not supported for spread functions (makes no sense) nor component classes (not supported for this flow, see mixComponentClassFuncs instead).
  *      * You should type each function most often with `ComponentFunc<Info>` type or `MixDOM.component<Info>()` method. If you leave a function and its params totally untyped, it will break the typing flow. But next one can correct it (at least partially).
- * - This also supports handling contextual needs (by a func having 3 args) as well as attaching / merging ShadowAPI | WrapperAPI.
+ * - This also supports handling contextual needs (by a func having 3 args) as well as attaching / merging ComponentShadowAPI | ComponentWiredAPI.
  * - Note that this does not wrap components one after another (like HOCs). Instead only their initializing closure is used, and the last active renderer.
  *      * Often the purpose is to extend props, state and/or class - especially class data becomes useful to hold info from different closures. Even partial renderers.
  *      * Note that each component func can still override state with: `component.state = { ...myStuff }`. The process detects changes and combines the states together if changed.
@@ -153,7 +140,7 @@ export function mixComponentFuncs(...args: [...funcs: ComponentFunc[], useRender
     const useRenderer = args[nArgs - 1] === true;
     const funcs = (useRenderer || !args[nArgs - 1] ? args.slice(0, nArgs - 1) : args) as ComponentFunc[];
     // Go through each.
-    const CompFunc = (initProps: Dictionary, component: Component | ComponentWith, cApi?: ContextAPI) => {
+    const CompFunc = (initProps: Dictionary, component: Component | ComponentWith, cAPI?: ComponentContextAPI) => {
         // Collect the last non-null output as the final outcome.
         // .. Prefer any functions, put if not provided use the outcome. We anyway return a renderer func.
         let lastOutput: MixDOMDoubleRenderer | MixDOMRenderOutput = null;
@@ -164,7 +151,7 @@ export function mixComponentFuncs(...args: [...funcs: ComponentFunc[], useRender
             // Collect state and meta before.
             const state = component.state;
             // Run the initial closure.
-            const output = (func as ComponentFuncWith)(initProps, component as ComponentWith, cApi as ContextAPI);
+            const output = (func as ComponentFuncWith)(initProps, component as ComponentWith, cAPI as ComponentContextAPI);
             // If returned a function (or lastOutput wasn't a func), store the output.
             if (typeof output === "function" || typeof lastOutput !== "function")
                 lastOutput = output;
@@ -175,15 +162,16 @@ export function mixComponentFuncs(...args: [...funcs: ComponentFunc[], useRender
         // Just return the last output. Don't force a renderer here - this is for pure mixing purposes.
         return useRenderer ? () => lastOutput : lastOutput;
     }
-    // Handle APIs: Check if any had 3 arguments for ContextAPI, and if any had ShadowAPI | WrapperAPI attached.
+    // Handle APIs: Check if any had 3 arguments for ContextAPI, and if any had ComponentShadowAPI | ComponentWiredAPI attached.
     let hadContext = false;
-    const apis = (funcs as Array<ComponentShadowFunc | ComponentWrapperFunc>).filter(func => (hadContext = hadContext || func.length > 2) && false || func.api).map(func => func.api);
-    // Create and return final component func, and attach ShadowAPI | WrapperAPI.
-    const FinalFunc = hadContext ? (initProps: Dictionary, component: ComponentWith, cApi: ContextAPI) => CompFunc(initProps, component, cApi) : (initProps: Dictionary, component: Component) => CompFunc(initProps, component);
+    const apis = (funcs as Array<ComponentShadowFunc | ComponentWiredFunc>).filter(func => (hadContext = hadContext || func.length > 2) && false || func.api).map(func => func.api);
+    // Create and return final component func, and attach ComponentShadowAPI | ComponentWiredAPI.
+    const FinalFunc = hadContext ? (initProps: Dictionary, component: ComponentWith, cAPI: ComponentContextAPI) => CompFunc(initProps, component, cAPI) : (initProps: Dictionary, component: Component) => CompFunc(initProps, component);
     if (apis[0])
-        (FinalFunc as ComponentShadowFunc | ComponentWrapperFunc).api = mergeShadowWrapperAPIs(apis); // If had even one, we should create a new one - as this is a new unique component.
+        (FinalFunc as ComponentShadowFunc | ComponentWiredFunc).api = mergeShadowWiredAPIs(apis); // If had even one, we should create a new one - as this is a new unique component.
     return FinalFunc;
 }
+
 
 /** This mixes many component functions together. Each should look like: (initProps, component, cApi?) => MixDOMRenderOutput | MixDOMDoubleRenderer.
  * - Unlike mixComponentFuncs, the last argument is a mixable func that should compose all together, and its typing comes from all previous combined.
@@ -287,7 +275,7 @@ export type GetComponentInfoFromMixins<
  * - The idea of a mixin is this: `(Base) => class extends Base { ... }`. So it creates a new class that extends the provided base class.
  *     * In the context of Components the idea is that the Base is Component and then different features are added to it.
  *     * Optionally, when used with mixComponentMixins the flow also supports adding requirements (in addition to that the Base is a Component class).
- * - To use this method: `const MyMixin = createMixin<RequireInfo, MyMixinInfo>(Base => class _MyMixin extends Base { ... }`
+ * - To use this method: `const MyMixin = createMixin<RequiresInfo, MyMixinInfo>(Base => class _MyMixin extends Base { ... }`
  *     * Without the method: `const MyMixin = (Base: ComponentTypeWithClass<RequireInfo>) => class _MyMixin extends (Base as ComponentTypeWithClass<RequireInfo & MyMixinInfo>) { ... }`
  *     * So the trick of this method is simply that the returned function still includes `(Base: Required)`, but _inside_ the func it looks like `(Base: Required & Added)`.
 */
@@ -469,7 +457,7 @@ export function mixComponentClassMixins(...args: any[]) { return (mixComponentMi
 //         // Assign render method. It will only be used for the very first time.
 //         render(initProps: Dictionary) {
 //             // Run the func initializer once.
-//             const output = func(initProps, this, this.contextAPI as ContextAPI);
+//             const output = func(initProps, this, this.contextAPI as ComponentContextAPI);
 //             // Return the original render.
 //             return useClassRender ? typeof useClassRender === "function" ? useClassRender : super.render : typeof output === "function" ? output : () => output;
 //         }
@@ -496,7 +484,7 @@ export function mixComponentClassFuncs(BaseClass: ComponentType, ...funcArgs: Co
         // Assign render method. It will only be used for the very first time.
         render(initProps: Dictionary) {
             // Run the compFunc initializer once.
-            const output = compFunc(initProps, this, this.contextAPI as ContextAPI);
+            const output = compFunc(initProps, this, this.contextAPI as ComponentContextAPI);
             // Return a renderer.
             return useClassRender ? super.render : typeof output === "function" ? output : () => output;
         }
@@ -566,7 +554,7 @@ export function mixHOCs(baseComp: ComponentTypeAny, ...hocs: ComponentHOCBase[])
     for (const thisHOC of hocs)
         Base = thisHOC(Base);
     // Then create a def for the last component in the chain. We can just use a spread as our final component.
-    return (props) => _Defs.newDef(Base, props, mixDOMContent);
+    return (props) => newDef(Base, props, MixDOMContent);
 }
 
 

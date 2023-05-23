@@ -3,11 +3,10 @@
 // - Imports - //
 
 import {
-    MixDOMCompareDepthByMode,
     MixDOMUpdateCompareMode,
     ReturnTypes
 } from "../static/_Types";
-import { _Lib } from "../static/_Lib";
+import { MixDOMCompareDepth, _Lib } from "../static/_Lib";
 
 
 // - Optional extra types - //
@@ -84,7 +83,7 @@ export const createDataPicker = <
     let extracted: any[] | readonly any[] = [];
     let data: Data = undefined as any;
     // Clean depth.
-    const d = typeof depth === "string" ? MixDOMCompareDepthByMode[depth] : depth;
+    const d = typeof depth === "string" ? MixDOMCompareDepth[depth] : depth;
     // Return a function to do the selecting.
     return (...args: any[]): Data => {
         // Extract new extracts.
@@ -124,7 +123,7 @@ export const createDataSelector = <
     Data extends any,
     Params extends any[] = Parameters<Extractors[number]>,
 >(extractors: Extractors, selector: (...args: ReturnTypes<Extractors>) => Data, depth: number | MixDOMUpdateCompareMode = 1): (...args: Params) => Data =>
-    createDataPicker((...args) => extractors.map(e => e && e(...args as any)), selector, depth);
+    createDataPicker((...args) => extractors.map(e => e && e(...args as any)) as any, selector, depth);
 
 
 // // - Testing: DataPicker - //

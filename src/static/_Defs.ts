@@ -18,18 +18,11 @@ import {
     MixDOMPreBaseProps,
 } from "./_Types";
 import { _Lib } from "./_Lib";
-import {
-    PseudoPortalProps,
-    PseudoElementProps,
-    PseudoContextsProps
-} from "../classes/ComponentPseudos";
+import { unfoldSpread, SpreadFunc } from "../classes/ComponentSpread";
+import { PseudoPortalProps, PseudoElementProps } from "../classes/ComponentPseudos";
 import { ContentClosure } from "../classes/ContentClosure";
-import { Ref } from "../classes/Ref";
 import { Host } from "../classes/Host";
-import {
-    unfoldSpread,
-    SpreadFunc
-} from "../classes/ComponentSpread";
+import { Ref } from "../classes/Ref";
 
 
 // - Exports - //
@@ -58,7 +51,7 @@ export function newDef(tagOrClass: MixDOMPreTag, origProps: Dictionary | null = 
             continue;
         }
         // Create def.
-        const def = _Defs.newDefFromContent(content);
+        const def = _Defs.newDefFrom(content);
         if (def) {
             iContent = childDefs.push(def);
             wasText = isText;
@@ -86,13 +79,10 @@ export function newDef(tagOrClass: MixDOMPreTag, origProps: Dictionary | null = 
 
     // Props.
     const needsProps = !!tag;
-    if (targetDef.MIX_DOM_DEF === "fragment") {
-        if (origProps && origProps.withContent)
-            targetDef.withContent = origProps.withContent;
-    }
+    if (targetDef.MIX_DOM_DEF === "fragment") {}
     else if (origProps) {
         // Copy.
-        const { _key, _ref, _contexts, _signals, _disable, ...passProps } = origProps;
+        const { _key, _ref, _signals, _contexts, _disable, ...passProps } = origProps;
         if (_key != null)
             targetDef.key = _key;
         if (_ref) {
@@ -106,10 +96,10 @@ export function newDef(tagOrClass: MixDOMPreTag, origProps: Dictionary | null = 
             }
             targetDef.attachedRefs = forwarded;
         }
-        if (_contexts && defType === "boundary")
-            targetDef.attachedContexts = { ..._contexts };
         if (_signals) // Note. These will only be handled for "boundary" and dom-like.
             targetDef.attachedSignals = { ..._signals };
+        if (_contexts && defType === "boundary")
+            targetDef.attachedContexts = { ..._contexts };
         if (needsProps)
             targetDef.props = typeof tag === "string" ? _Lib.cleanDOMProps(passProps) : passProps as MixDOMProcessedDOMProps;
     }
@@ -122,10 +112,6 @@ export function newDef(tagOrClass: MixDOMPreTag, origProps: Dictionary | null = 
         case "portal": {
             const props = (origProps || {}) as PseudoPortalProps;
             targetDef.domPortal = props.container || null;
-            break;
-        }
-        case "contexts": {
-            targetDef.contexts = (origProps || {} as PseudoContextsProps).cascade || null;
             break;
         }
         case "element": {
@@ -143,43 +129,11 @@ export function newDef(tagOrClass: MixDOMPreTag, origProps: Dictionary | null = 
 
 export const _Defs = {
 
-    // - CREATE DEFS - //
 
-    /** Note that "content" and "host" defs are created from the ...contents[], while "pass" type comes already as a def.
-     * .. This gives any other type. If there's no valid type, returns "". */
-    getMixDOMDefType(tag: MixDOMPreTag): MixDOMDefType | "spread" | "" {
-        // Dom.
-        if (typeof tag === "string")
-            return "dom";
-        // Functions.
-        const mixDOMClass = tag["MIX_DOM_CLASS"];
-        if (!mixDOMClass)
-            return typeof tag === "function" ? (tag.length >= 2 ? "boundary" : "spread") : "";
-        // Class/Mixin or pseudo class.
-        switch(mixDOMClass) {
-            // Boundaries.
-            case "Component":
-            case "Stream":
-                return "boundary";
-            // For others below, we return the lower case type as it fits MixDOMDefType.
-            case "Fragment":
-            case "Portal":
-            case "Element":
-            case "Contexts": // Note that "Context" as singular should not appear here anymore after v1.7.0.
-            case "Host":
-                return mixDOMClass.toLowerCase() as MixDOMDefType;
-            // Empty or other.
-            // case "Empty":
-            default:
-                return "";
-        }
-    },
-
-    // Returns null only if has no tagOrClass and no contentPass defined.
-    newDef,
+    // - Create def helpers - //
 
     // Create a def out of the content.
-    newDefFromContent(renderContent: MixDOMRenderOutput): MixDOMDefTarget | null {
+    newDefFrom(renderContent: MixDOMRenderOutput): MixDOMDefTarget | null {
 
         // Object type.
         if (renderContent && (typeof renderContent === "object")) {
@@ -211,7 +165,7 @@ export const _Defs = {
             // Is an array or array like.
             if (Array.isArray(renderContent) || renderContent instanceof HTMLCollection || renderContent instanceof NodeList) {
                 // Process array with localKeys support.
-                const childDefs = [...renderContent].map(item => _Defs.newDefFromContent(item)).filter(def => def) as MixDOMDefTarget[];
+                const childDefs = [...renderContent].map(item => _Defs.newDefFrom(item)).filter(def => def) as MixDOMDefTarget[];
                 if (!childDefs.length)
                     return null;
                 // Create a single fragment item to hold the array and mark as array.
@@ -238,7 +192,7 @@ export const _Defs = {
     },
 
     /** Copies everything from targetDef that defines its type, but not any "updatable" properties (except key). */
-    newAppliedDefBy(targetDef: MixDOMDefTarget, contentClosure: ContentClosure | null): MixDOMDefApplied {
+    newAppliedDef(targetDef: MixDOMDefTarget, contentClosure: ContentClosure | null): MixDOMDefApplied {
         // Basics.
         const aDef = {
             MIX_DOM_DEF: targetDef.MIX_DOM_DEF,
@@ -254,13 +208,11 @@ export const _Defs = {
                 aDef.isArray = true;
             if (targetDef.scopeType)
                 aDef.scopeType = targetDef.scopeType;
-            if (targetDef.withContent !== undefined)
-                aDef.withContent = targetDef.withContent;
         }
         // Content pass.
         else if (aDef.MIX_DOM_DEF === "pass") {
-            if (targetDef.getContentStream) {
-                aDef.getContentStream = targetDef.getContentStream;
+            if (targetDef.getStream) {
+                aDef.getStream = targetDef.getStream;
                 aDef.contentPass = targetDef.contentPass || null;
             }
             else
@@ -295,43 +247,74 @@ export const _Defs = {
     newContentCopyDef(key?: any): MixDOMDefTarget {
         return _Defs.newContentPassDef(key, true);
     },
+    
+
+    // - Helpers - //
+    
+    /** Note that "content" and "host" defs are created from the ...contents[], while "pass" type comes already as a def.
+     * .. This gives any other type. If there's no valid type, returns "". */
+    getMixDOMDefType(tag: MixDOMPreTag): MixDOMDefType | "spread" | "" {
+        // Dom.
+        if (typeof tag === "string")
+            return "dom";
+        // Functions.
+        const mixDOMClass = tag["MIX_DOM_CLASS"];
+        if (!mixDOMClass)
+            return typeof tag === "function" ? (tag.length >= 2 ? "boundary" : "spread") : "";
+        // Class/Mixin or pseudo class.
+        switch(mixDOMClass) {
+            // Boundaries.
+            case "Component":
+            case "Stream":
+                return "boundary";
+            // For others below, we return the lower case type as it fits MixDOMDefType.
+            case "Fragment":
+            case "Portal":
+            case "Element":
+            case "Host":
+                return mixDOMClass.toLowerCase() as MixDOMDefType;
+            // Empty or other.
+            // case "Empty":
+            default:
+                return "";
+        }
+    },
+
+    /** Check recursively from applied or target defs, whether there's actually stuff that amounts to a content.
+     * - To handle interpreting content passes, feed the handlePass boolean answer (when used in spreads), or callback (when used non-statically to use parent content closure).
+     * - Note that this returns `"maybe"` if handlePass was `true` (or callback and said "maybe") and it was the only one in the game.
+     * - However if there's anything solid anywhere, will return `true`. Otherwise then `false`, if it's all clear.
+     */
+    hasContentInDefs<Def extends MixDOMDefApplied | MixDOMDefTarget> (childDefs: Array<Def>, handlePass: ((def: Def) => boolean | "maybe") | boolean): boolean | "maybe" {
+        // Loop each.
+        let maybe: false | "maybe" = false;
+        for (const def of childDefs) {
+            // Nope.
+            if (def.disabled)
+                continue;
+            // Get our value.
+            const answer: boolean | "maybe" =
+                // If is a fragment, check deeply in it.
+                def.MIX_DOM_DEF === "fragment" ? _Defs.hasContentInDefs(def.childDefs as Def[], handlePass) : 
+                // If is a pass, use our predefiend answer or callback.
+                def.MIX_DOM_DEF === "pass" ? typeof handlePass === "function" ? handlePass(def) : handlePass && "maybe" :
+                // Otherwise, it's something else - so we regard it as content (on the static side).
+                true;
+            // Got a solid no.
+            if (!answer)
+                continue;
+            // Got a solid yes.
+            if (answer === true)
+                return true;
+            // Potentially.
+            maybe = "maybe";
+        }
+        // Return false or then "maybe" if had any content passes (and is on the static side).
+        return maybe;
+    },
+
 
     // A unique but common to all key for MixDOM.Content defs - used unless specifically given a key.
     ContentKey: {}
 
 }
-
-
-// // - Testing - //
-// //
-// // newDef("fail", { "style": {color: "#aac"} });
-// // newDef("FAIL", { "style": {color: "#aac"} });
-// newDef("span", { "style": {color: "#aac"} });
-// // newDef("span", { "styleFAIL": {color: "#aac"} });
-// // newDef("span", { "styleFAIL": {color: "#aac"} as const } as const);
-// // newDef("span", { "class": true });
-// newDef("span", { "class": "true" });
-// // newDef("span", { "style": {colorFAIL: "#aac"} });
-// // newDef("span", { "style": {colorFAIL: "#aac" } as const } as const);
-//
-// import { Component } from "../classes/Component";
-// import { Context } from "../classes/Context";
-// import { MixDOM } from "../MixDOM";
-// import { MixDOMContextsAll } from "../static/_Types";
-//
-// interface TestProps { test: boolean; }
-// const Test = (props: TestProps) => {
-//     return null;
-// }
-// class TestClass extends Component<TestProps> {}
-// newDef(Test, { test: true });
-// // newDef(Test, { testFAIL: true }); // Fails correctly!
-// newDef(TestClass, { test: true });
-// // newDef(TestClass, { testFAIL: true }); // Fails correctly!
-//
-// const contexts = { "test": new Context() };
-// newDef(MixDOM.Contexts, { cascade: contexts });
-// // newDef(MixDOM.Contexts, { cascadeFAIL: { "test": new Context() } }); // Fails correctly!
-// newDef(MixDOM.Fragment, { withContent: true });
-// // newDef(MixDOM.Fragment, { withContentFAIL: true }); // Fails correctly!
-//

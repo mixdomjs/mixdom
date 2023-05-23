@@ -6,11 +6,10 @@ import {
     DOMTags,
     MixDOMCloneNodeBehaviour,
     MixDOMPreDOMTagProps,
-    MixDOMPreBaseProps,
     MixDOMRenderOutput,
-    MixDOMContextsAllOrNull,
     MixDOMDefTarget,
 } from "../static/_Types";
+import { ComponentTypeEither } from "./Component";
 import { ComponentStreamProps, ComponentStreamType } from "./ComponentStream";
 
 
@@ -20,12 +19,17 @@ import { ComponentStreamProps, ComponentStreamType } from "./ComponentStream";
 // .. So even though they are used like: <MixDOM.Portal />, the MixDOM.Portal class is actually never instanced.
 // .. Instead it's just turned into a target def describing portal (or other) functionality - as the features are handled directly (for better performance).
 
+export interface MixDOMPrePseudoProps {
+    /** Disable the def altogether - including all contents inside. (Technically makes the def amount to null.) */
+    _disable?: boolean;
+    /** Attach key for moving the def around. */
+    _key?: any;
+}
+
 
 // - Fragment - //
 
-export interface PseudoFragmentProps extends MixDOMPreBaseProps {
-    withContent?: boolean | (() => ComponentStreamType);
-};
+export interface PseudoFragmentProps extends MixDOMPrePseudoProps { }
 /** Fragment represent a list of render output instead of stuff under one root.
  * Usage example: `<MixDOM.Fragment><div/><div/></MixDOM.Fragment>` */
 export class PseudoFragment<Props extends PseudoFragmentProps = PseudoFragmentProps> {
@@ -37,7 +41,7 @@ export class PseudoFragment<Props extends PseudoFragmentProps = PseudoFragmentPr
 
 // - Portal - //
 
-export interface PseudoPortalProps extends MixDOMPreBaseProps {
+export interface PseudoPortalProps extends MixDOMPrePseudoProps {
     container: Node | null;
 }
 /** Portal allows to insert the content into a foreign dom node.
@@ -98,22 +102,6 @@ export const PseudoEmptyStream = class extends PseudoEmpty<ComponentStreamProps>
     public static Content: MixDOMDefTarget | null = null;
     public static ContentCopy: MixDOMDefTarget | null = null;
     public static copyContent = (_key?: any): MixDOMDefTarget | null => null;
-    public static withContent = (..._contents: MixDOMRenderOutput[]): MixDOMDefTarget | null => null;
+    public static WithContent: ComponentTypeEither<{props: { hasContent?: boolean; }}> = (_initProps, _comp) => null;
     public static isStream(): boolean { return false; }
 } as unknown as ComponentStreamType;
-
-
-// - Contexts - //
-
-export type PseudoContextsProps<AllContexts extends MixDOMContextsAllOrNull = {}> = {
-    /** Include many named contexts. */
-    cascade: AllContexts | null;
-}
-/** Allows to attach multiple contexts simultaneously.
- * Usage example: `<MixDOM.Contexts cascade={{namedContexts}}><div/></MixDOM.Contexts>` */
-export class PseudoContexts<AllContexts extends MixDOMContextsAllOrNull = {}, Props extends PseudoContextsProps = PseudoContextsProps> {
-    public static MIX_DOM_CLASS = "Contexts";
-    public readonly props: Props;
-    constructor(_props: Props) { }
-    contexts: AllContexts;
-}

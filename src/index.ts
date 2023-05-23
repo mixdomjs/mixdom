@@ -17,12 +17,11 @@ export {
     PseudoEmpty,
     PseudoEmptyProps,
     PseudoEmptyStream,
-    PseudoContexts,
-    PseudoContextsProps
 } from "./classes/ComponentPseudos";
-export { ComponentSpread, createSpread, SpreadFunc } from "./classes/ComponentSpread";
+export { createSpread, createSpreadWith, SpreadFunc, SpreadFuncWith } from "./classes/ComponentSpread";
 export {
     Component,
+    ComponentWith,
     ComponentMixin,
     createComponent,
     createComponentWith,
@@ -37,42 +36,40 @@ export {
     ComponentSignals,
     ComponentExternalSignals,
     ComponentInstanceType,
-    ComponentWith,
     ComponentFunc,
-    ComponentFuncOf,
     ComponentFuncWith,
-    ComponentFuncWithout,
+    ComponentFuncOf,
     ComponentFuncAny,
     GetComponentInfo,
     GetComponentFuncInfo,
-    ExtendInfoWith
+    ExtendComponentInfoWith
 } from "./classes/Component";
 export * from "./classes/ComponentMixing";
 export {
     ComponentShadow,
+    ComponentShadowWith,
     ComponentShadowFunc,
     ComponentShadowFuncWith,
-    ComponentShadowFuncWithout,
     ComponentShadowSignals,
     ComponentShadowType,
-    ComponentShadowWith,
     createShadow,
     createShadowWith
 } from "./classes/ComponentShadow";
 export {
-    ComponentWrapper,
-    ComponentWrapperFunc,
-    ComponentWrapperType,
-    createWrapper
-} from "./classes/ComponentWrapper";
+    ComponentWired,
+    ComponentWiredFunc,
+    ComponentWiredType,
+    createWired
+} from "./classes/ComponentWired";
 export {
     ComponentStream,
     ComponentStreamType,
     ComponentStreamProps,
     createStream,
 } from "./classes/ComponentStream";
-export { Host, newHost, HostSignals, HostSettings, HostSettingsUpdate } from "./classes/Host";
-export { Context, ContextType, newContext, newContexts } from "./classes/Context";
+export { Host, newHost, HostSettings, HostSettingsUpdate } from "./classes/Host";
+export { Context, newContext, newContexts } from "./classes/Context";
+export { ContextAPI, MixDOMContextsAll, MergeSignalsFromContexts, GetJoinedDataKeysFromContexts, GetJoinedSignalKeysFromContexts } from "./classes/ContextAPI";
 export { Ref, newRef, RefSignals } from "./classes/Ref";
 
 // All addons.
@@ -80,6 +77,7 @@ export { Effect, EffectMixin, newEffect } from "./addons/Effect";
 export { createDataPicker, createDataSelector, CreateDataPicker, CreateDataSelector, DataExtractor } from "./addons/DataPicker";
 
 // All types - with JSX IntrinsicElements support.
+export { MixDOMCompareDepth } from "./static/_Lib";
 export * from "./static/_Types";
 export * from "./static/_SVGTypes";
 export * from "./static/_JSX";

@@ -1,7 +1,66 @@
+## v3.1.0 (into summer shape)
+
+### A new minor version: v3.1
+
+- Reducing the size of the library from 89.2kb to 74.9kb minified - dropping over 14kb (about 1/6). In total dropped about 24kb and then reimplemented similar feature set with about 10kb.
+
+- The changes mainly reorganizing a few features while solving some special cases. As a result, using the library is a bit clearer, while it's slimmer without losses in the overall feature set.
+
+- 1. Dropping and partly reorganizing how **ContentAPI** related features work.
+  2. Reorganizing how the data and signals are used for **Hosts**, and how **Contexts** relate to them.
+  3. Reorganized how **Host** duplication works technically.
+
+### How and why?
+
+- Reorganized how data and signal sharing works for **Hosts** & **Contexts** (and in relation to host duplication).
+  - In v3.0, there was a bit of doubling. Both **Contexts** and **Hosts** featured the same **DataSignalMan**, making contexts a bit useless. It was also a strange to have duplicatable hosts with host based data, as most often the data is assumed to be global-like. Finally, having **Contexts** cascading down the tree coupled with component specific **ContextAPIs** also required a lot of code handling (20kb minified in total).
+  - Now in v3.1, **Host** no longer extends **DataSignalMan**, but instead has a `.contextAPI` member and the **Contexts** are attached to it. Accordingly the host related data and signal methods on the **Component** class are removed, while the class still features a `.contextAPI`. Instead of cascading contexts down the tree, they are now inherited from the host to the components, while the components can still assign local overrides.
+  - From usage point of view, there is very little difference. Mostly that contexts do not cascade down (but are instead attachable to Hosts for inheritance) as well as some micro-timing special cases.
+    - In relation to micro-timing logic: The data listener calls are no longer ordered by tree but instead called after the direct calls in the order of adding. Previously, they were delayed until the component would update. However it's redundant to order them (and weird to extra-delay them) - if uses `setState` during the call (as expected), the subsequent component updates will anyway be ordered in the update process.
+
+- Dropping the features related to **ContentAPI** and getting children content and marking children needs - for parental and stream passing (in total they were about 4kb). The reason is that they are not needed, and in larger scale they are actually a bit confusing to have. This is because can always just use "props" instead on the component (eg. `props.items` or `props.children`), if needs to wrap or whatever - which is actually a better design (and no confusion with nested defs for content within content within...).
+  - However, the related `MixDOM.withContent(...contents)` feature had to be reimplemented. It's now a `MixDOM.WithContent` component and used accordingly, for example: `<MixDOM.WithContent><span class="title">{MixDOM.Content}</span></MixDOM.WithContent>`. Together with recursive check support amounts to a bit less than 2kb minified (including the new useful `closure.chainedClosures?` mapping).
+  - This component based design has the benefit of separating the content based refreshes from the parent scope (and helps to prevent accidentally forming long re-render chains using spreads). So now an interested parent does _not_ re-render when the content changes, but instead the `WithContent` component. And with **ComponentStreams** there's no longer a need to detect for cyclical cases.
+
+
+### Enhancements
+
+- Enhanced the "multi" mode support in `sendSignalAs` method. Now it can always force the return to be in array mode - even when combining with "first", "last" or "first-true" modes.
+- Optimized the processing of **Spread** functions - now they recognize inner spreads, which also helps with the two points below.
+- Added recursive support for the **WithContent** feature for **Spreads** and **Components** using closure chains (detected while pairing defs).
+- Technical enhancement: Added a useful mapping (as `closure.chainedClosures?`) from parent closures to first level child closures that have a content pass def for them - regardless of whether it'll be grounded or not. This allows to detect small content-pass-linked-chains (eg. useful for alarming about changes in the content chain recursively).
+
+### Fixes
+
+- Fixed collecting the return value in the "last" mode for `sendSignalAs` method.
+
+### Lost of changes
+
+- There is no more `.contentAPI` on the component. If the parent should pass something specific to the child component, it can simply use `props`.
+- The feature for `MixDOM.withContent(...contents)` has been changed to `<MixDOM.WithContent>{...contents}</MixDOM.WithContent>`. It no longer requires the parent scope to re-render, and it now supports checking recursively up the envelope flow whether really has content or not (both within Spreads and Components).
+- Likewise on the **ComponentStream** class and **PseudoEmptyStream**, the `MyStream.withContent(...contents)` has been changed to `<MyStream.WithContent>{...contents}</MyStream.WithContent>`.
+- A few tiny changes on the **ContextAPI** class - now it's only tie to the outside is the attachable `afterRefresh` method. It no longer needs to know whether it's used by a component or a host or whatever. There's also a **ComponentContextAPI** and **HostContextAPI** classes with tiny mods: eg. tying the ContextAPI to the Host based refresh system and providing automatical inheritance from Host to Component contexts.
+- Some methods and members on the **Context** class has been reorganized - however it still extends **DataSignalMan**, so most are the same.
+- The `_contexts` still works the same, except now it calls `component.contextAPI.setContext(name, ctx)` method directly (there are just 2 levels for attaching contexts: Host and Component).
+- The **Host** class no longer extends **DataManSignal** but instead provides the related features through its `.contextAPI` member.
+- The last arguments for `MixDOM.newHost()` method have been changed. Now the args are: `(renderContent?, container?, settings?, contexts?)`. There is actually a 5th argument as well that is used internally when duplicating a Host `(, shadowAPI?)`.
+- Added a method for `afterRefreshCall` on **Host** - like `afterRefresh` but instead first argument is a callback and does not return a promise (just `void`).
+- Changed how the Host duplication system works. Now there's a **HostShadowAPI** class instance (on `host.shadowAPI`) that is shared between all duplicated - it doesn't matter who is the source. Accordingly the `sourceHost` and `ghostHosts` members are removed from **Host** class.
+- Renamed **ShadowAPI** to **ComponentShadowAPI** and likewise **WiredAPI** to **ComponentWiredAPI** to avoid confusion with the new **HostShadowAPI**.
+- Renamed ComponentWrapper (back to) **ComponentWired** for clarity of purpose. Accordingly named the WrappedAPI and `component.wrappers` respectively. (The fact that the concept works by creating a *wrapper* component is secondary to why it's used: to wire the component to an external source.)
+- Renamed `enum MixDOMCompareDepth` to just `enum MixDOMCompareDepth`. Likewise on the MixDOM object it's: `MixDOM.CompareDepth`.
+- Dropped `enum ContextAttach` - there's now only direct ties, and for Components also ones inherited from the Host. (No need for a whole enum.)
+- Dropped the `{ props, children }` extra info as `this` for **Spread** funcs - no real point.
+- Dropped `host.settings.shouldUpdateWithNothing` - it's kind of weird to thing to control.
+- Dropped `host.settings.devLogCleanUp` - it's only useful for internal development (for examining the core flow).
+- Dropped `host.settings.welcomeContextsUpRoot` - now contexts work differently, they don't cascade down anymore.
+- Dropped `host.settings.maxCyclicalUpdates` due to how the `WithContent` works now, there's no need for this as the parent won't re-render. (This would only be needed if actually purposefully made an infinite loop: by defining `MyStream`'s content within a `MyStream.WithContent` portion.)
+- Some reorganization and renaming in the methods and members of internal classes.
+
 ## v3.0.1
 
 ### Tiny typing fixes
-- Fixed a typing typo in relation context.sendSignalAs method.
+- Fixed a typing typo in relation to `contextAPI.listenTo` and `contextAPI.sendSignalAs` methods.
 - Refined to work around a typing warning in the `MixDOM.module.d.ts`.
 
 ## v3.0.0

@@ -12,14 +12,14 @@ import {
     MixDOMTreeNodeBoundary,
     MixDOMHydrationSuggester,
     MixDOMHydrationValidator,
-    GetJoinedDataKeysFrom,
-    PropType,
     MixDOMUpdateCompareModesBy,
     MixDOMRenderTextTag,
     MixDOMRenderTextContentCallback,
     DOMTags,
     MixDOMCloneNodeBehaviour,
     MixDOMTreeNodeHost,
+    MixDOMDefBoundary,
+    MixDOMDefApplied,
 } from "../static/_Types";
 import { _Lib } from "../static/_Lib";
 import { _Defs } from "../static/_Defs";
@@ -27,27 +27,122 @@ import { _Find } from "../static/_Find";
 import { SourceBoundary } from "./Boundary";
 import { HostServices } from "./HostServices";
 import { HostRender } from "./HostRender";
-import { SignalsRecord } from "./SignalMan";
-import { DataSignalMan } from "./DataSignalMan";
-import { ComponentTypeAny } from "./Component";
+import { ComponentTypeAny, ComponentWith } from "./Component";
+import { ContextAPI, MixDOMContextsAll } from "./ContextAPI";
+import { SignalListener } from "./SignalMan";
+
+
+// - HostContextAPI class - //
+
+/** This is simply a tiny class that is used to manage the host duplication features in a consistent way.
+ * - Each Host has a `.shadowAPI`, but it's the very same class instance for all the hosts that are duplicated - the original and any duplicates have the same instance here.
+ * - This way, it doesn't matter who is the original source (or if it dies away). As long as the shadowAPI instance lives, the originality lives.
+ */
+export class HostShadowAPI<Contexts extends MixDOMContextsAll = {}> {
+    /** These are the Host instances that share the common duplication basis. Note that only appear here once mounted (and disappear once cleaned up). */
+    hosts: Set<Host<Contexts>> = new Set();
+    /** These are the duplicatable contexts (by names). Any time a Host is duplicated, it will get these contexts automatically. */
+    contexts: Partial<Contexts> = {};
+}
+
+/** The Host based ContextAPI simply adds an extra argument to the setContext and setContexts methods for handling which contexts are auto-assigned to duplicated hosts.
+ * - It also has the afterRefresh method assign to the host's cycles. */
+export interface HostContextAPI<Contexts extends MixDOMContextsAll = {}> extends ContextAPI<Contexts> {
+    /** The Host that this ContextAPI is attached to. Should be set manually after construction.
+     * - It's used for two purposes: 1. Marking duplicatable contexts to the Host's shadowAPI, 2. syncing to the host refresh (with the afterRefresh method).
+     * - It's assigned as a member to write HostContextAPI as a clean class.
+     */
+    host: Host<Contexts>;
+    /** Attach the context to this ContextAPI by name. Returns true if did attach, false if was already there.
+     * - Note that if the context is `null`, it will be kept in the bookkeeping. If it's `undefined`, it will be removed.
+     *      * This only makes difference when uses one ContextAPI to inherit its contexts from another ContextAPI.
+     * - Note that this method is extended on the HostContextAPI to include markAsDuplicatable option (defaults to false).
+     *      * If set to true, will also modify the host.shadowAPI.contexts: if has a context adds there, if null or undefined removes from there.
+     *      * It's a dictionary used for auto-assigning contexts to a new duplicated host - requires `host.settings.duplicatableHost: true`.
+     */
+    setContext<Name extends keyof Contexts & string>(name: Name, context: Contexts[Name] | null | undefined, callDataIfChanged?: boolean, markAsDuplicatable?: boolean): boolean;
+    /** Set multiple named contexts in one go. Returns true if did changes, false if didn't. This will only modify the given keys.
+     * - Note that if the context is `null`, it will be kept in the bookkeeping. If it's `undefined`, it will be removed.
+     *      * This only makes difference when uses one ContextAPI to inherit its contexts from another ContextAPI.
+     * - Note that this method is extended on the HostContextAPI to include markAsDuplicatable option (defaults to false).
+     *      * If set to true, will also modify the host.shadowAPI.contexts: if has a context adds there, if null or undefined removes from there.
+     *      * It's a dictionary used for auto-assigning contexts to a new duplicated host - requires `host.settings.duplicatableHost: true`.
+     */
+    setContexts(contexts: Partial<{[CtxName in keyof Contexts]: Contexts[CtxName] | null | undefined; }>, callDataIfChanged?: boolean, markAsDuplicatable?: boolean): boolean;
+    /** This triggers a refresh and returns a promise that is resolved when the Host's update / render cycle is completed.
+     * - If there's nothing pending, then will resolve immediately. 
+     * - This uses the signals system, so the listener is called among other listeners depending on the adding order. */
+    afterRefresh(fullDelay?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): Promise<void>;
+    /** Attached to provide adding all component based signals. Note that will skip any components that have the given context name overridden. */
+    getListenersFor<CtxName extends string & keyof Contexts>(ctxName: CtxName, signalName: string & keyof Contexts[CtxName]["_Signals"]): SignalListener[] | undefined;
+    /** Attached to provide adding all component based data listeners. Note that will skip any components that have all of those names overridden. */
+    callDataListenersFor(ctxNames: string[], dataKeys?: true | string[]): void;
+}
+export class HostContextAPI<Contexts extends MixDOMContextsAll = {}> extends ContextAPI<Contexts> {
+
+
+    // - Setting contexts - //
+
+    public setContext<Name extends keyof Contexts & string>(name: Name, context: Contexts[Name] | null | undefined, callDataIfChanged: boolean = true, markAsDuplicatable: boolean = false): boolean { 
+        // Handle local bookkeeping.
+        if (markAsDuplicatable)
+            context ? this.host.shadowAPI.contexts[name] = context : delete this.host.shadowAPI.contexts[name];
+        // Basis.
+        return super.setContext(name as never, context as never, callDataIfChanged);
+    }
+    public setContexts(namedContexts: Partial<{[CtxName in keyof Contexts]: Contexts[CtxName] | null | undefined; }>, callDataIfChanged: boolean = true, markAsDuplicatable: boolean = false): boolean {
+        // Handle local bookkeeping.
+        if (markAsDuplicatable) {
+            const dContexts = this.host.shadowAPI.contexts;
+            for (const ctxName in namedContexts)
+                namedContexts[ctxName] ? dContexts[ctxName] = namedContexts[ctxName] as any : delete dContexts[ctxName];
+        }
+        // Basis.
+        return super.setContexts(namedContexts, callDataIfChanged);
+    }
+
+
+    // - Handling refresh - //
+
+    public afterRefresh(fullDelay?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): Promise<void> {
+        return this.host.afterRefresh(fullDelay, updateTimeout, renderTimeout);
+    }
+
+
+    // - Getting / Calling indirect (component) listeners - //
+
+    public getListenersFor<CtxName extends string & keyof Contexts>(ctxName: CtxName, signalName: string & keyof Contexts[CtxName]["_Signals"]): SignalListener[] | undefined {
+        // Prepare.
+        const ctxSignalName = ctxName + "." + signalName;
+        // Collect all.
+        const listeners = (this.signals[ctxSignalName] || []).concat([...this.host.contextComponents]
+            // Only allow those that match and are not on components that have direct overrides for the given name - as they would be collected directly if related. (If unrelated, then nothing to do.)
+            .filter(comp => comp.contextAPI.signals[ctxSignalName] && (comp.contextAPI.contexts[ctxName] === undefined))
+            // Convert to the listeners and reduce the double structure away.
+            .map(comp => comp.contextAPI.signals[ctxSignalName]).reduce((a, c) => a.concat(c), []) );
+        return listeners[0] && listeners;
+    }
+    public callDataListenersFor(ctxNames: string[], dataKeys: true | string[] = true): void {
+        // Call the direct.
+        const ctxDataKeys = dataKeys === true ? ctxNames : ctxNames.map(ctxName => dataKeys.map(key => ctxName + "." + key)).reduce((a, c) => a.concat(c)) as any;
+        this.callDataBy(ctxDataKeys as never);
+        // Call indirect - but only the ones who has not overridden the given context names locally.
+        // .. If has overridden locally, will be refreshed directly if related.
+        for (const comp of this.host.contextComponents)
+            if (ctxNames.some(ctxName => comp.contextAPI.contexts[ctxName] === undefined))
+                comp.contextAPI.callDataBy(ctxDataKeys as never);
+    }
+}
 
 
 // - Types - //
 
-/** Hosts always have these signals. But you can add custom ones as well through `Host<Data, Signals>`. */
-export type HostSignals = {
-    /** Called right after the update cycle. */
-    onUpdate: () => void;
-    /** Called right after the render cycle. */
-    onRender: () => void;
-}
-export interface HostType<Data extends any = any, Signals extends SignalsRecord = {}> {
+export interface HostType<Contexts extends MixDOMContextsAll = {}> {
     /** Used for host based id's. To help with sorting fluently across hosts. */
     idCount: number;
-    new (content?: MixDOMRenderOutput, domContainer?: Node | null, settings?: HostSettingsUpdate | null): Host<Data, Signals>;
-
-    modifySettings(baseSettings: HostSettings, updates: HostSettingsUpdate): void;
-    getDefaultSettings(settings?: HostSettingsUpdate | null): HostSettings;
+    new (content?: MixDOMRenderOutput, domContainer?: Node | null, settings?: HostSettingsUpdate | null): Host<Contexts>;
+    modifySettings(baseSettings: HostSettings, newSettings: HostSettingsUpdate): void;
+    getDefaultSettings(): HostSettings;
 }
 
 export interface HostSettingsUpdate extends Partial<Omit<HostSettings, "updateComponentModes">> {
@@ -57,7 +152,7 @@ export interface HostSettingsUpdate extends Partial<Omit<HostSettings, "updateCo
 /** Settings for MixDOM behaviour for all inside a host instance.
  * The settings can be modified in real time: by host.updateSettings(someSettings) or manually, eg. host.settings.updateTimeout = null. */
 export interface HostSettings {
-
+    
 	/** If is null, then is synchronous. Otherwise uses the given timeout in ms. Defaults to 0ms.
      * - This timeout delays the beginning of the update process.
      *   * After the timeout has elapsed, .render() is called on components and a new structure is received.
@@ -90,13 +185,7 @@ export interface HostSettings {
      *     * However, you won't have dom elements on mount. To know when that happens should use refs or signals and .domDidMount and .domWillUnmount callbacks. */
     useImmediateCalls: boolean;
 
-    /** If the internal should update check is called without any types to update with, this decides whether should update or not. Defaults to false. */
-    shouldUpdateWithNothing: boolean;
-
-    /** Defines what components should look at when doing onShouldUpdate check.
-     * By default looks in all 4 places for change: 1. Props, 2. State, 3. Children, 4. Streamed.
-     * .. However, most of them will be empty, and Children and Streamed will only be there if specifically asked for (by needsData, get/needs children, getFor/needsFor streamed content).
-     * .. The default mode is "double", except for children it's "changed", and for streamed it's "always". */
+    /** Defines what components should look at when doing onShouldUpdate check for "props" and "state". */
     updateComponentModes: MixDOMUpdateCompareModesBy;
 
     /** Whether does a equalDOMProps check on the updating process.
@@ -111,15 +200,6 @@ export interface HostSettings {
      * .... However, the only time it stops short is for not-equal, in which case it also means that we will anyway do the diff collection run later on.
      * .... In other words, it's in practice a matter of taste: if you want clean renderinfos (for debugging) use true. The default is "if-needed". */
     preCompareDOMProps: boolean | "if-needed";
-
-    /** The maximum number of cyclical updates - only affects content streaming (at least currently). Defaults to 0 - so won't allow any.
-     * - Cyclical updates normally never happen. However, they can happen when updating components up the flow. In practice, these cases are extremely rare but can happen.
-     *      * As an example, inserting a stream (using withContent) in a common parent for insertion and source - though all in between must be spread funcs or have {props: "always"} update mode.
-     *      * This also includes cases where the same component defines and inserts the content of the same stream.
-     * - Note that what the cut actually means (eg. for a stream), is that the content will be updated, but the components interested in its content will not be triggered for updates (-> won't re-render).
-     *      * For example when a common parent uses withContent, the parent won't re-render. But as normally, the contents are updated smoothly without intermediary ones re-rendering.
-     */
-    maxCyclicalUpdates: number;
 
     /** The maximum number of times a boundary is allowed to be render during an update due to update calls during the render func.
      * .. If negative, then there's no limit. If 0, then doesn't allow to re-render. The default is 1: allow to re-render once (so can render twice in a row).
@@ -167,11 +247,6 @@ export interface HostSettings {
      * - When they are grounded again, they will mount and rebuild their internal structure from the rootBoundary up. */
     onlyRunInContainer: boolean;
 
-    /** Whether allows contexts to cascade down from host to host.
-     * - Specifically sets whether this host accepts contexts above its root.
-     * - If false, will be independent of the parent host's contexts. Defaults to true. */
-    welcomeContextsUpRoot: boolean;
-
     /** When pairing defs for reusing, any arrays are dealt as if their own key scope by default.
      * - By setting this to true, wide key pairing is allowed for arrays as well.
      * - Note that you can always use {...myArray} instead of {myArray} to avoid this behaviour (even wideKeysInArrays: false).
@@ -186,16 +261,16 @@ export interface HostSettings {
     duplicateDOMNodeHandler: ((domNode: Node, treeNode: MixDOMTreeNodeDOM) => Node | null) | null;
     /** Whether this host can be auto-duplicated when included dynamically multiple times. Defaults to false.
      * - Can also be a callback that returns a boolean (true to include, false to not), or a new host.
+     * - Note that if uses a custom Host class, the new duplicate will be made from the normal Host class. Use the callback to provide manually.
      * - The treeNode in the arguments defines where would be inserted. */
     duplicatableHost: boolean | ((host: Host, treeNode: MixDOMTreeNodeHost) => Host | boolean | null);
 
     /** For weird behaviour. */
     devLogWarnings: boolean;
-    /** This log can be useful when testing how MixDOM behaves (in small tests, not for huge apps) - eg. to optimize using keys.
-     * To get nice results, set preCompareDOMProps setting to `true`. */
+    /** Mostly for developing MixDOM.
+     * - This log can be useful when testing how MixDOM behaves (in very small tests, not for huge apps) - eg. to optimize using keys.
+     * - To get nice results, set preCompareDOMProps setting to `true`. */
     devLogRenderInfos: boolean;
-    /** To see what was cleaned up on each run (defs / treeNodes). */
-    devLogCleanUp: boolean;
 
 }
 
@@ -203,7 +278,8 @@ export interface HostSettings {
 // - Class - //
 
 /** This is the main class to orchestrate and start rendering. */
-export class Host<Data extends any = any, Signals extends SignalsRecord = {}> extends DataSignalMan<Data, HostSignals & Signals> { 
+// export class Host<Data extends any = any, Signals extends SignalsRecord = {}> extends DataSignalMan<Data, HostSignals & Signals> { 
+export class Host<Contexts extends MixDOMContextsAll = {}> {
 
     
     // - Static - //
@@ -211,7 +287,7 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
     public static MIX_DOM_CLASS = "Host";
     public static idCount = 0;
 
-    ["constructor"]: HostType<Data, Signals>;
+    ["constructor"]: HostType<Contexts>;
 
     
     // - Members - //
@@ -220,34 +296,44 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
     public groundedTree: MixDOMTreeNode;
     /** The root boundary that renders whatever is fed to the host on .update or initial creation. */
     public rootBoundary: SourceBoundary;
-    /** Internal services to keep the whole thing together and synchronized.
-     * They are the semi-private internal part of Host, so separated into its own class. */
-    services: HostServices;
     /** The general settings for this host instance.
      * - Do not modify directly, use the .modifySettings method instead.
      * - Otherwise rendering might have old settings, or setting.onlyRunInContainer might be uncaptured. */
     public settings: HostSettings;
-    /** This gets automatically assigned, whenever the host is auto-duplicated (by settings.duplicatableHost).
-     * - Note that when a duplication happens, will also add the duplicated host to our ghostHost's collection, while we're its sourceHost. */
-    public sourceHost?: Host;
-    /** This refers to all the duplicated hosts (of this host) - requires settings.duplicatableHost. We hold that memory so that we can pass settings. */
-    public ghostHosts?: Set<Host>;
+    /** Internal services to keep the whole thing together and synchronized.
+     * They are the semi-private internal part of Host, so separated into its own class. */
+    services: HostServices;
+
+    /** This is used for duplicating hosts. It's the very same instance for all duplicated (and their source, which can be a duplicated one as well). */
+    public shadowAPI: HostShadowAPI<Contexts>;
+    /** This provides the data and signal features for this Host and all the Components that are part of it.
+     * - You can use .contextAPI directly for external usage.
+     * - When using from within components, it's best to use their dedicated methods (for auto-disconnection features). */
+    public contextAPI: HostContextAPI<Contexts>;
+    /** This contains all the components that have a contextAPI assigned. Automatically updated, used internally. The info can be used for custom purposes (just don't modify). */
+    public contextComponents: Set<ComponentWith>;
 
 
     // - Init - //
 
-    constructor(content?: MixDOMRenderOutput, domContainer?: Node | null, data?: Data, settings?: HostSettingsUpdate | null) {
+    constructor(content?: MixDOMRenderOutput, domContainer?: Node | null, settings?: HostSettingsUpdate | null, contexts?: Contexts | null, shadowAPI?: HostShadowAPI | null) {
 
 
         // - Initialize - //
-
-        // Signals.
-        super(data);
 
         // Static.
         this.constructor.idCount++;
 
         // Initialize.
+        // .. ShadowAPI.
+        this.shadowAPI = shadowAPI || new HostShadowAPI();
+        this.contextComponents = new Set();
+        // .. ContextAPI.
+        this.contextAPI = new HostContextAPI();
+        this.contextAPI.host = this;
+        if (contexts)
+            this.contextAPI.setContexts(contexts as any, false, true); // Don't call, but mark the initial ones as permanent.
+        
         // .. And groundedTree.
         this.groundedTree = {
             type: "root",
@@ -256,8 +342,12 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
             domNode: domContainer || null,
             sourceBoundary: null
         };
+
         // .. And then settings.
-        this.settings = Host.getDefaultSettings(settings);
+        this.settings = Host.getDefaultSettings();
+        if (settings)
+            Host.modifySettings(this.settings, settings);
+
         // .. And then services - to initialize HostRender class with proper refs.
         this.services = new HostServices(this);
 
@@ -267,7 +357,7 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
         // Create root component with the first content.
         const Root = this.services.createRoot(content);
         // Create base tree node for the root boundary.
-        const sourceDef = _Defs.newAppliedDefBy({ MIX_DOM_DEF: "boundary", tag: Root, props: {}, childDefs: [] }, null);
+        const sourceDef = _Defs.newAppliedDef({ MIX_DOM_DEF: "boundary", tag: Root, props: {}, childDefs: [] }, null) as MixDOMDefApplied & MixDOMDefBoundary;
         const treeNode: MixDOMTreeNodeBoundary = {
             type: "boundary",
             def: sourceDef,
@@ -288,6 +378,7 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
         // Run updates.
         this.services.absorbUpdates(this.rootBoundary, {});
     }
+
 
 
     // - Root methods - //
@@ -362,49 +453,29 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
      * - If there's nothing pending, then will resolve immediately. 
      * - Note that this uses the signals system, so the listener is called among other listeners depending on the adding order. */
     public afterRefresh(renderSide: boolean = false, updateTimeout?: number | null, renderTimeout?: number | null): Promise<void> {
-        return new Promise<void>(resolve => {
-            // No pending - resolve immediately.
-            if (!this.services.hasPending(true, renderSide, true))
-                resolve();
-            // Add a listener and trigger refresh.
-            else {
-                // Add to refresh wait.
-                this.listenTo(renderSide ? "onRender" : "onUpdate", resolve as any);
-                // Trigger updates.
-                this.services.triggerUpdates(updateTimeout, renderTimeout);
-            }
-        });
+        return new Promise<void>(resolve => this.afterRefreshCall(resolve, renderSide, updateTimeout, renderTimeout));
+    }
+
+    /** This is like afterRefresh but works with a callback, given as the first arg. (This is the core method for the feature.)
+     * - Triggers a refresh and calls the callback once the update / render cycle is completed.
+     * - If there's nothing pending, then will call immediately. 
+     * - Note that this uses the signals system, so the listener is called among other listeners depending on the adding order. */
+    public afterRefreshCall(callback: () => void, renderSide: boolean = false, updateTimeout?: number | null, renderTimeout?: number | null): void {
+        // No pending - call immediately.
+        if (!this.services.hasPending(true, renderSide))
+            callback();
+        // Add a listener and trigger refresh.
+        else {
+            // Add to refresh wait.
+            const side = renderSide ? "_afterRender" : "_afterUpdate";
+            (this.services[side] || (this.services[side] = [])).push(callback);
+            // Trigger updates.
+            this.services.triggerUpdates(updateTimeout, renderTimeout);
+        }
     }
     
     /** Trigger refreshing the host's pending updates and render changes. */
     public triggerRefresh(updateTimeout?: number | null, renderTimeout?: number | null): void {
-        this.services.triggerUpdates(updateTimeout, renderTimeout);
-    }
-
-    
-    // - Extend to provide both timeouts (mostly for typing, but must do implementation too without a separate interface) - //
-
-    /** Set the data and refresh.
-     * - Note that the extend functionality should only be used for dictionary objects. */
-    public setData(data: Data, extend?: boolean | false, refresh?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): void;
-    public setData(data: Partial<Data>, extend?: boolean | true, refresh?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): void;
-    public setData(data: Partial<Data>, extend: boolean = false, refresh: boolean = true, updateTimeout?: number | null, renderTimeout?: number | null): void { (super.setData as Host["setData"])(data, extend, refresh, updateTimeout, renderTimeout); }
-
-    /** Set or extend in nested data, and refresh with the key.
-     * - Note that the extend functionality should only be used for dictionary objects. */
-    public setInData<DataKey extends GetJoinedDataKeysFrom<Data & {}>, SubData extends PropType<Data, DataKey, never>>(dataKey: DataKey, subData: Partial<SubData>, extend?: true, refresh?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): void;
-    public setInData<DataKey extends GetJoinedDataKeysFrom<Data & {}>, SubData extends PropType<Data, DataKey, never>>(dataKey: DataKey, subData: SubData, extend?: boolean | undefined, refresh?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): void;
-    public setInData(dataKey: string, subData: any, extend: boolean = false, refresh: boolean = true, updateTimeout?: number | null, renderTimeout?: number | null): void { (super.setInData as Host["setInData"])(dataKey, subData as never, extend, refresh, updateTimeout, renderTimeout); }
-
-    /** This refreshes both: data & pending signals.
-     * - If refreshKeys defined, will add them - otherwise only refreshes pending.
-     * - Note that if !!refreshKeys is false, then will not add any refreshKeys. If there were none, will only trigger the signals. */
-    public refreshData<DataKey extends GetJoinedDataKeysFrom<Data & {}>>(dataKeys: DataKey | DataKey[] | boolean, updateTimeout?: number | null, renderTimeout?: number | null): void;
-    public refreshData(dataKeys?: string | string[] | boolean | null, updateTimeout?: number | null, renderTimeout?: number | null): void {
-        // Add keys.
-        if (dataKeys)
-            this.addRefreshKeys(dataKeys);
-        // Trigger our host updates.
         this.services.triggerUpdates(updateTimeout, renderTimeout);
     }
 
@@ -489,61 +560,47 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
     /** Modify previously given settings with partial settings.
      * - Note that if any value in the dictionary is `undefined` uses the default setting.
      * - Supports handling the related special cases:
-     *     1. welcomeContextsUpRoot: Immediately updates whether now has a context on the host or not.
-     *     2. onlyRunInContainer: Refreshes whether is visible or not (might destroy all / create all, if needed).
+     *      * `onlyRunInContainer`: Refreshes whether is visible or not (might destroy all / create all, if needed).
      */
-    public modifySettings(settings: HostSettingsUpdate, passToGhosts: boolean = true): void {
+    public modifySettings(settings: HostSettingsUpdate, passToDuplicated: boolean = true): void {
         // Collect state before.
         const onlyRunWas = this.settings.onlyRunInContainer;
-        const welcomeCtxsWas = this.settings.welcomeContextsUpRoot;
-        // Do changes.
+        // Update each values.
         Host.modifySettings(this.settings, settings);
         // Detect special changes.
-        // .. Recheck contexts from host to host.
-        if (welcomeCtxsWas !== undefined && welcomeCtxsWas !== settings.welcomeContextsUpRoot) {
-            const pHost = this.groundedTree.parent && this.groundedTree.parent.sourceBoundary && this.groundedTree.parent.sourceBoundary.host;
-            const pCtxs = pHost && this.settings.welcomeContextsUpRoot ? pHost.rootBoundary.outerContexts : {};
-            this.services.onContextPass(pCtxs);
-        }
         // .. Run the update immediately.
         if (settings.onlyRunInContainer !== undefined && settings.onlyRunInContainer !== onlyRunWas)
             this.refreshRoot(false, null, null);
         // Update duplicated hosts.
-        if (passToGhosts && this.ghostHosts)
-            for (const host of this.ghostHosts)
-                host.modifySettings(settings);
+        if (passToDuplicated)
+            for (const host of this.shadowAPI.hosts)
+                if (host !== this)
+                    host.modifySettings(settings, false);
     }
 
 
     // - Static helpers - //
 
-    /** Modify settings with partial settings. If any is `undefined` uses the default setting. */
-    public static modifySettings(baseSettings: HostSettings, updates: HostSettingsUpdate): void {
-        // Defaults.
-        const defaults = Host.getDefaultSettings();
-        // Special case.
-        const { updateComponentModes, ... otherUpdates } = updates;
-        if (updateComponentModes) {
-            for (const prop in updateComponentModes) {
-                const val = updateComponentModes[prop];
-                if (typeof val === "string")
-                    baseSettings.updateComponentModes[prop] = val;
-                else
-                    baseSettings.updateComponentModes[prop] = defaults.updateComponentModes[prop];
-            }
+    public static modifySettings(base: HostSettings, newSettings: HostSettingsUpdate, useDefaults = false): void {
+        // Prepare.
+        let defaults: HostSettings | null = null;
+        // Pre-handle special cases: an object like setting value.
+        if (newSettings.updateComponentModes) {
+            const newUpdModes = newSettings.updateComponentModes;
+            const updModes: Partial<HostSettings["updateComponentModes"]> = {};
+            for (const type in newUpdModes)
+                updModes[type] = newUpdModes[type] ?? (defaults || (defaults = Host.getDefaultSettings())).updateComponentModes[type];
+            newSettings = {...newSettings, updateComponentModes: updModes };
         }
-        // Update simple values.
-        for (const prop in otherUpdates) {
-            const val = updates[prop];
-            const type = typeof val;
-            if (val === undefined)
-                baseSettings[prop] = defaults[prop];
-            else if ((val === null) || (type === "boolean") || (type === "string") || (type === "number"))
-                baseSettings[prop] = val;
-        }
+        // Handle all.
+        for (const prop in newSettings)
+            if (newSettings[prop] !== undefined)
+                base[prop] = newSettings[prop];
+            else if (useDefaults)
+                base[prop] = (defaults || (defaults = Host.getDefaultSettings()))[prop];
     }
 
-    public static getDefaultSettings(settings?: HostSettingsUpdate | null): HostSettings {
+    public static getDefaultSettings(): HostSettings {
         // Default.
         const dSettings: HostSettings = {
             // Timing.
@@ -552,17 +609,12 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
             // Calling.
             useImmediateCalls: false,
             // Updating.
-            shouldUpdateWithNothing: false,
-            maxCyclicalUpdates: 0,
             updateComponentModes: {
                 props: "shallow",
                 state: "shallow",
-                children: "always",
-                streamed: "always",
             },
             preCompareDOMProps: "if-needed",
             // Behaviour.
-            welcomeContextsUpRoot: true,
             wideKeysInArrays: false,
             noRenderValuesMode: false,
             onlyRunInContainer: false,
@@ -581,30 +633,19 @@ export class Host<Data extends any = any, Signals extends SignalsRecord = {}> ex
             // Dev log.
             devLogWarnings: false,
             devLogRenderInfos: false,
-            devLogCleanUp: false,
         };
-        // Apply custom.
-        if (settings) {
-            for (const prop in settings)
-                dSettings[prop] = settings[prop];
-        }
         // Return combined.
         return dSettings;
     }
 
-
-    // - Typing - //
-
-    /** This is only provided for typing related technical reasons. There's no actual Signals object on the javascript side. */
-    _Signals: Signals;
-
 }
 
 /** Create a new host and start rendering into it. */
-export const newHost = <Data extends any = any, Signals extends SignalsRecord = {}>(
+export const newHost = <Contexts extends MixDOMContextsAll = {}>(
     content?: MixDOMRenderOutput,
     container?: HTMLElement | null,
-    data?: any,
     settings?: HostSettingsUpdate | null,
-) => new Host<Data, Signals>(content, container, data, settings);
+    contexts?: Contexts,
+    // shadowAPI?: HostShadowAPI | null
+) => new Host<Contexts>(content, container, settings, contexts); //, shadowAPI);
 

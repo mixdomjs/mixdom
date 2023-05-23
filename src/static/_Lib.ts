@@ -10,12 +10,25 @@ import {
     MixDOMProcessedDOMProps,
     MixDOMPreClassName,
     MixDOMUpdateCompareMode,
-    MixDOMCompareDepthByMode,
     MixDOMCommonDOMProps,
+    NodeJSTimeout,
 } from "./_Types";
 
 
 // - Exports - //
+
+// Enums.
+/** For quick getting modes to depth for certain uses (Effect and DataPicker).
+ * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
+ * - Values are: "never" = -3, "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
+export enum MixDOMCompareDepth {
+    never = -3,
+    always = -2,
+    deep = -1,
+    changed = 0,
+    shallow = 1,
+    double = 2,
+};
 
 export const _Lib = {
 
@@ -149,7 +162,7 @@ export const _Lib = {
 
     /** Generic helper for classes with timer and method to call to execute rendering with a very specific logic.
      * - Returns the value that should be assigned as the stored timer (either existing one, new one or null). */
-    refreshWithTimeout<Obj extends object, Timer extends number | NodeJS.Timeout>(obj: Obj, callback: (this: Obj) => void, currentTimer: Timer | null, defaultTimeout: number | null, forceTimeout?: number | null): Timer | null {
+    refreshWithTimeout<Obj extends object, Timer extends number | NodeJSTimeout>(obj: Obj, callback: (this: Obj) => void, currentTimer: Timer | null, defaultTimeout: number | null, forceTimeout?: number | null): Timer | null {
         // Clear old timer if was given a specific forceTimeout (and had a timer).
         if (currentTimer !== null && forceTimeout !== undefined) {
             clearTimeout(currentTimer);
@@ -375,7 +388,7 @@ export const _Lib = {
         for (const prop in compareBy) {
             // Prepare.
             const mode = compareBy[prop];
-            const nMode = typeof mode === "number" ? mode : MixDOMCompareDepthByMode[mode as string] as number ?? 0;
+            const nMode = typeof mode === "number" ? mode : MixDOMCompareDepth[mode as string] as number ?? 0;
             // Never (-3) and always (-2) modes. The outcome is flipped as we're not asking about change but equality.
             if (nMode < -1) {
                 if (nMode === -2)

@@ -12,25 +12,22 @@ import {
     MixDOMTreeNodeType,
     MixDOMTreeNode,
     MixDOMComponentPreUpdates,
-    MixDOMContextsAll,
     MixDOMUpdateCompareMode,
     ClassType,
     ClassMixer,
     MixDOMPreComponentOnlyProps,
-    GetJoinedDataKeysFrom,
-    PropType,
 } from "../static/_Types";
 import { _Lib } from "../static/_Lib";
 import { _Defs } from "../static/_Defs";
 import { _Find } from "../static/_Find";
-import { SignalMan, SignalListenerFunc, _SignalManMixin, SignalManFlags, SignalsRecord } from "./SignalMan";
+import { SignalMan, _SignalManMixin } from "./SignalMan";
 import { SpreadFunc } from "./ComponentSpread";
 import { SourceBoundary } from "./Boundary";
-import { ContentAPI } from "./ContentAPI";
-import { ContextAPI, ContextAPIWith } from "./ContextAPI";
-import { ShadowAPI } from "./ComponentShadow";
-import { createWrapper, ComponentWrapperFunc, ComponentWrapperType } from "./ComponentWrapper";
+import { ComponentShadowAPI } from "./ComponentShadow";
+import { createWired, ComponentWiredFunc, ComponentWiredType } from "./ComponentWired";
 import { Host } from "./Host";
+import { ContextAPI, MixDOMContextsAll, MixDOMContextsAllOrNull } from "./ContextAPI";
+import { Context } from "./Context";
 
 
 // - Component signals - //
@@ -121,7 +118,7 @@ export type ComponentExternalSignals<Comp extends Component = Component> = {
 };
 
 /** Typing infos for Components. */
-export interface ComponentInfo<Props extends Dictionary = {}, State extends Dictionary = {}, Class extends Dictionary = {}, Signals extends Dictionary<(...args: any[]) => any> = {}, Timers extends any = any, HostInfo extends Host = Host, Contexts extends MixDOMContextsAll = {}> {
+export interface ComponentInfo<Props extends Dictionary = {}, State extends Dictionary = {}, Class extends Dictionary = {}, Signals extends Dictionary<(...args: any[]) => any> = {}, Timers extends any = any, Contexts extends MixDOMContextsAll = {}> {
     /** Typing for the props for the component - will be passed by parent. */
     props: Props;
     /** Typing for the local state of the component. */
@@ -135,10 +132,46 @@ export interface ComponentInfo<Props extends Dictionary = {}, State extends Dict
     signals: Signals;
     /** Typing for timers. Usually strings but can be anything. */
     timers: Timers;
-    /** Typing for host data and signals. */
-    host: HostInfo;
-    /** Typing for contexts. */
+    /** Typing for the related contexts: a dictionary where keys are context names and values are each context.
+     * - The actual contexts can be attached directly on the Component using its contextAPI or _contexts prop, but they are also secondarily inherited from the Host. */
     contexts: Contexts;
+}
+
+
+// - ComponentContextAPI class - //
+
+export interface ComponentContextAPI<Contexts extends MixDOMContextsAll = {}> extends ContextAPI<Contexts> {
+    /** The Host that this ContextAPI is related to (through the component). Should be set manually after construction.
+     * - It's used for two purposes: 1. Inheriting contexts, 2. syncing to the host refresh (with the afterRefresh method).
+     * - It's assigned as a member to write ComponentContextAPI as a clean class.
+     */
+    host: Host<Contexts>;
+    /** Get the named context for the component.
+     * - Note that for the ComponentContextAPI, its local bookkeeping will be used primarily. If a key is found there it's returned (even if `null`).
+     * - Only if the local bookkeeping gave `undefined` will the inherited contexts from the host be used, unless includeInherited is set to `false` (defaults to `true`).
+     */
+    getContext<Name extends keyof Contexts & string>(name: Name, includeInherited?: boolean): Contexts[Name] | null | undefined;
+    /** Get the contexts for the component, optionally only for given names.
+     * - Note that for the ComponentContextAPI, its local bookkeeping will be used primarily. If a key is found there it's returned (even if `null`).
+     * - Only if the local bookkeeping gave `undefined` will the inherited contexts from the host be used, unless includeInherited is set to `false` (defaults to `true`).
+     */
+    getContexts<Name extends keyof Contexts & string>(onlyNames?: RecordableType<Name> | null, includeInherited?: boolean): Partial<Record<string, Context | null>> & Partial<MixDOMContextsAllOrNull<Contexts>>;
+    /** This triggers a refresh and returns a promise that is resolved when the Component's Host's update / render cycle is completed.
+     * - If there's nothing pending, then will resolve immediately. 
+     * - This uses the signals system, so the listener is called among other listeners depending on the adding order. */
+    afterRefresh(fullDelay?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): Promise<void>;
+}
+export class ComponentContextAPI<Contexts extends MixDOMContextsAll = {}> extends ContextAPI<Contexts> {
+    host: Host<Contexts>;
+    public getContext<Name extends keyof Contexts & string>(name: Name, includeInherited: boolean = true): Contexts[Name] | null | undefined {
+        return this.contexts[name] !== undefined ? this.contexts[name] as Contexts[Name] | null : includeInherited ? this.host.contextAPI.contexts[name] as Contexts[Name] | undefined : undefined;
+    }
+    public getContexts<Name extends keyof Contexts & string>(onlyNames?: RecordableType<Name> | null, includeInherited: boolean = true): Partial<Record<string, Context | null>> & Partial<MixDOMContextsAllOrNull<Contexts>> {
+        return includeInherited ? { ...this.host.contextAPI.getContexts(onlyNames), ...super.getContexts(onlyNames) } : super.getContexts(onlyNames);
+    }
+    public afterRefresh(fullDelay?: boolean | undefined, updateTimeout?: number | null, renderTimeout?: number | null): Promise<void> {
+        return this.host.afterRefresh(fullDelay, updateTimeout, renderTimeout);
+    }
 }
 
 
@@ -151,131 +184,53 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
     return class _Component extends (_SignalManMixin(Base) as ClassType) {
 
 
-        // - Typing - //
-        
-        // _Info: Info;
-
-
         // - Static side - //
 
         public static MIX_DOM_CLASS = "Component";
-        ["constructor"]: ComponentType; // <Info>;
+        ["constructor"]: ComponentType<Info>;
 
 
         // - Members - //
 
+        public readonly boundary: SourceBoundary;
         public readonly props: Props;
         public state: State;
-
         public updateModes: Partial<MixDOMUpdateCompareModesBy>;
         public constantProps?: Partial<Record<keyof Props, MixDOMUpdateCompareMode | number | true>>;
-        public hostDataListeners?: Map<SignalListenerFunc, string[]>;
-        public hostListeners?: [name: string, callback: SignalListenerFunc][];
         public timers?: Map<any, number | NodeJSTimeout>;
-        public contentAPI: ContentAPI;
-        public contextAPI?: ContextAPI<Info>;
-        public readonly boundary: SourceBoundary;
-        public readonly wrappers?: Set<ComponentWrapperType | ComponentWrapperFunc>;
+        public readonly wired?: Set<ComponentWiredType | ComponentWiredFunc>;
+
+        public contextAPI?: ComponentContextAPI<Info["contexts"] & {}>;
 
 
-        // - Methods - //
+        // - Construction - //
 
         constructor(props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Props, boundary?: SourceBoundary, ...passArgs: any[]) {
             // We are a mixin.
             super(...passArgs);
-            // Add content api.
-            this.contentAPI = new ContentAPI(this as any);
             // Set from args.
             this.props = props;
             if (boundary) {
                 this.boundary = boundary;
                 boundary.component = this as any;
-                if (boundary._initContextAPI)
-                    this.initContextAPI();
             }
         }
 
+        /** This initializes the contextAPI instance (once). */
         initContextAPI(): void {
-            if (!this.contextAPI)
-                this.contextAPI = new ContextAPI(this as any) as ContextAPIWith<Info>;
-        }
-
-
-        // - Host related - //
-        
-        public getHost(): Host {
-            return this.boundary.host;
-        }
-
-        public listenToHost(name: string, callback: SignalListenerFunc, extraArgs?: any[] | null, flags?: SignalManFlags | null): void {
-            // Add to our local bookkeeping (for auto-disconnection on unmounting).
-            // .. First one.
-            if (!this.hostListeners)
-                this.hostListeners = [[name, callback]];
-            // .. If exists already, can just skip - it will be overridden likewise on the host (based on name and callback).
-            else {
-                const listeners = this.hostListeners;
-                if (!listeners.some(([n, c], index) => n === name && c === callback))
-                    listeners.push([name, callback]);
-            }
-            // Add a direct listener.
-            this.boundary.host.listenTo(name as any, callback, extraArgs, flags);
-        }
-
-        public unlistenToHost(names?: string | string[] | null, callback?: SignalListenerFunc | null): void {
-            // Remove from host.
-            this.boundary.host.unlistenTo(names as any, callback);
-            // Remove from local bookkeeping.
-            if (this.hostListeners) {
-                // Make sure is array or nothing.
-                if (typeof names === "string")
-                    names = [ names ];
-                // Go through each in reverse order and check if names and callback matches - if so, remove from the array.
-                for (let i=this.hostListeners.length-1; i>=0; i--) {
-                    const [name, thisCallback] = this.hostListeners[i];
-                    if ((!names || names.includes(name)) && (!callback || callback == thisCallback))
-                        this.hostListeners.splice(i, 1);
-                }
-            }
-        }
-
-        public isListeningToHost(name?: string | null, callback?: (SignalListenerFunc) | null): boolean {
-            return this.hostListeners && this.hostListeners.some(([n, c]) => (!name || n === name) && (!callback || c === callback)) || false;
-        }
-
-        public listenToHostData(...args: any[]): void {
-            // Parse.
-            let iOffset = 1;
-            const nArgs = args.length;
-            const callImmediately = typeof args[nArgs - iOffset] === "boolean" && args[nArgs - iOffset++];
-            const callback: SignalListenerFunc = args[nArgs - iOffset];
-            const dataNeeds = args.slice(0, nArgs - iOffset);
-            // Add / Override.
-            if (!this.hostDataListeners)
-                this.hostDataListeners = new Map();
-            this.hostDataListeners.set(callback, dataNeeds);
-            // Call.
-            if (callImmediately)
-                callback(...dataNeeds.map((need, i) => this.boundary.host.getInData(need)));
-        }
-
-        public unlistenToHostData(callback: SignalListenerFunc): boolean {
-            // Doesn't have.
-            if (!this.hostDataListeners || !this.hostDataListeners.has(callback))
-                return false;
-            // Remove.
-            this.hostDataListeners.delete(callback);
-            if (!this.hostDataListeners.size)
-                delete this.hostDataListeners;
-            return true;
-        }
-
-        
-        // - Extend signal delay handling - //
-
-        // Overridden.
-        public afterRefresh(renderSide: boolean = false, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): Promise<void> {
-            return this.boundary.host.afterRefresh(renderSide, forceUpdateTimeout, forceRenderTimeout);
+            // Already created.
+            if (this.contextAPI)
+                return;
+            // Create new.
+            this.contextAPI = new ComponentContextAPI();
+            this.contextAPI.host = this.boundary.host;
+            // Attach to host for hooking up to its contexts automatically. Will be removed on unmounting.
+            this.boundary.host.contextComponents.add(this as any as ComponentWith);
+            // Set initial contexts.
+            const _contexts = this.boundary._outerDef.attachedContexts;
+            if (_contexts)
+                for (const ctxName in _contexts)
+                    this.contextAPI.setContext(ctxName as never, _contexts[ctxName] as never, false);
         }
 
 
@@ -283,6 +238,10 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
 
         public isMounted(): boolean {
             return this.boundary.isMounted === true;
+        }
+
+        public getHost<Contexts extends MixDOMContextsAll = Info["contexts"] & {}>(): Host<Contexts> {
+            return this.boundary.host;
         }
 
         public queryElement(selector: string, withinBoundaries: boolean = false, overHosts: boolean = false): Element | null {
@@ -406,21 +365,28 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
 
         // - Wired component - //
 
-        public createWrapper(...args: any[]): ComponentWrapperFunc | ComponentWrapperType {
-            const Wrapper = createWrapper(...args as Parameters<typeof createWrapper>);
-            if (!this.wrappers)
+        public createWired(...args: any[]): ComponentWiredFunc | ComponentWiredType {
+            const Wired = createWired(...args as Parameters<typeof createWired>);
+            if (!this.wired)
                 // We set a readonly value here - it's on purpose: we want it to be readonly for all others except this line.
-                (this as { wrappers: Set<ComponentWrapperFunc | ComponentWrapperType>; }).wrappers = new Set([Wrapper]);
+                (this as { wired: Set<ComponentWiredFunc | ComponentWiredType>; }).wired = new Set([Wired]);
             else
-                this.wrappers.add(Wrapper);
-            return Wrapper;
+                this.wired.add(Wired);
+            return Wired;
+        }
+
+        
+        // - Extend signal delay handling - //
+
+        // Overridden.
+        public afterRefresh(renderSide: boolean = false, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): Promise<void> {
+            return this.boundary.host.afterRefresh(renderSide, forceUpdateTimeout, forceRenderTimeout);
         }
 
 
         // - Render - //
 
         public render(_props: Props, _state: State): MixDOMRenderOutput | MixDOMDoubleRenderer & MixDOMDoubleRenderer<Props, State> { return null; }
-        // public render(_props: Props, _state: State): MixDOMRenderOutput | MixDOMDoubleRenderer<Props, State> { return null; }
 
     }
 }
@@ -464,125 +430,17 @@ export interface Component<
     /** If constantProps is defined, then its keys defines props that must not change, and values how the comparison is done for each.
      * This affects the def pairing process by disallowing pairing if conditions not met, which in turn results in unmount and remount instead of just updating props (and potentially moving). */
     constantProps?: Partial<Record<keyof Props, MixDOMUpdateCompareMode | number | true>>;
-
-    // Apis.
-    /** Use contentAPI to define any needs for content passing: children or streams.
-     * For example, if you want to wrap them specifically, you should define the needs here - so that this component is updated when the content pass has changed. */
-    contentAPI: ContentAPI;
-    /** Use contextAPI to define contextual needs (for actions, data, ctx streams). Note that you need to initialize this with initContextAPI or by using a functional component with proper initialization (3 arguments or by a shortcut). */
-    contextAPI?: ContextAPIWith<Info>;
+    /** ContextAPI for the component. You can use it to access contextual features. By default inherits the named contexts from the Host, but you can also override them locally. */
+    contextAPI?: ComponentContextAPI<Info["contexts"] & {}>;
 
     // Related class instances.
-    /** Ref to the dedicated boundary. */
+    /** Ref to the dedicated SourceBoundary - it's technical side of a Component. */
     readonly boundary: SourceBoundary;
-    /** Any wrapper component classes created by us. */
-    readonly wrappers?: Set<ComponentWrapperType | ComponentWrapperFunc>;
-    /** Any host listeners that will be auto-disconnected on unmount. */
-    hostListeners?: [name: string, callback: SignalListenerFunc][];
-    /** If uses listenToHostData method, automatically marks the dataKeys here for auto refreshing. We don't need fallbackArgs as the host is always present - reflected in the typing as well. */
-    hostDataListeners?: Map<SignalListenerFunc, string[]>;
-    
+    /** Any wired component classes created by us. */
+    readonly wired?: Set<ComponentWiredType | ComponentWiredFunc>;
+
     /** The constructor is typed as ComponentType. */
     ["constructor"]: ComponentType<Info>;
-
-
-    // - Initializers - //
-
-    /** Initialize a ContextAPI for this component. This is only useful when using classes - as opposed to functional components. */
-    initContextAPI(): void;
-
-
-    // - Host related - //
-
-    /** Gets the host of the component. Can sometimes be used, say, with custom signals on the host. */
-    getHost(): Info["host"] & {};
-    /** Add a host signal listener that will be automatically disconnected when the component unmounts. */
-    listenToHost<HostSignals extends SignalsRecord = (Info["host"] & { _Signals: SignalsRecord })["_Signals"], SignalName extends string & keyof HostSignals = string & keyof HostSignals>(name: SignalName, callback: HostSignals[SignalName], extraArgs?: any[] | null, flags?: SignalManFlags | null): void;
-    /** Remove a host signal listener added with `listenToHost`. */
-    unlistenToHost<HostSignals extends SignalsRecord = (Info["host"] & { _Signals: SignalsRecord })["_Signals"]>(names?: keyof HostSignals | Array<keyof HostSignals> | null, callback?: SignalListenerFunc | null, groupId?: any | null): void;
-    /** Check whether has added a host signal listener with `listenToHost`. */
-    isListeningToHost<HostSignals extends SignalsRecord = (Info["host"] & { _Signals: SignalsRecord })["_Signals"]>(name?: keyof HostSignals | null, callback?: SignalListenerFunc | null): boolean;
-    /** Listen to data changes in the component - typically then set to the component's state.
-     * - However, only needed if the data is designed to be changing, otherwise can just use `component.getHost().getInData(dataKey)` (eg. in the initializer).
-     * - As the host is always present, there's no `undefined` added to the arguments, and no fallback arguments needed to be provided. */
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>) => void,
-    >(dataKey: Key1, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Key3 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>, val3: PropType<HostData, Key3, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, dataKey3: Key3, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Key3 extends Keys,
-        Key4 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>, val3: PropType<HostData, Key3, never>, val4: PropType<HostData, Key4, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, dataKey3: Key3, dataKey4: Key4, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Key3 extends Keys,
-        Key4 extends Keys,
-        Key5 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>, val3: PropType<HostData, Key3, never>, val4: PropType<HostData, Key4, never>, val5: PropType<HostData, Key5, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, dataKey3: Key3, dataKey4: Key4, dataKey5: Key5, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Key3 extends Keys,
-        Key4 extends Keys,
-        Key5 extends Keys,
-        Key6 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>, val3: PropType<HostData, Key3, never>, val4: PropType<HostData, Key4, never>, val5: PropType<HostData, Key5, never>, val6: PropType<HostData, Key6, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, dataKey3: Key3, dataKey4: Key4, dataKey5: Key5, dataKey6: Key6, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Key3 extends Keys,
-        Key4 extends Keys,
-        Key5 extends Keys,
-        Key6 extends Keys,
-        Key7 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>, val3: PropType<HostData, Key3, never>, val4: PropType<HostData, Key4, never>, val5: PropType<HostData, Key5, never>, val6: PropType<HostData, Key6, never>, val7: PropType<HostData, Key7, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, dataKey3: Key3, dataKey4: Key4, dataKey5: Key5, dataKey6: Key6, dataKey7: Key6, callback: Callback, callImmediately?: boolean): void;
-    listenToHostData<
-        HostData extends (Info["host"] & { data: {}; })["data"],
-        Keys extends GetJoinedDataKeysFrom<HostData & {}>,
-        Key1 extends Keys,
-        Key2 extends Keys,
-        Key3 extends Keys,
-        Key4 extends Keys,
-        Key5 extends Keys,
-        Key6 extends Keys,
-        Key7 extends Keys,
-        Key8 extends Keys,
-        Callback extends (val1: PropType<HostData, Key1, never>, val2: PropType<HostData, Key2, never>, val3: PropType<HostData, Key3, never>, val4: PropType<HostData, Key4, never>, val5: PropType<HostData, Key5, never>, val6: PropType<HostData, Key6, never>, val7: PropType<HostData, Key7, never>, val8: PropType<HostData, Key8, never>) => void,
-    >(dataKey1: Key1, dataKey2: Key2, dataKey3: Key3, dataKey4: Key4, dataKey5: Key5, dataKey6: Key6, dataKey7: Key6, dataKey8: Key8, callback: Callback, callImmediately?: boolean): void;
-    /** Remove a host data listener manually. Returns true if did remove, false if wasn't attached. */
-    unlistenToHostData(callback: SignalListenerFunc): boolean;
 
 
     // - Extend signal delay handling - //
@@ -596,6 +454,8 @@ export interface Component<
 
     /** Whether this component has mounted. If false, then has not yet mounted or has been destroyed. */
     isMounted(): boolean;
+    /** Gets the rendering host that this component belongs to. By default uses the same Contexts typing as in the component's info, but can provide custom Contexts here too. */
+    getHost<Contexts extends MixDOMContextsAll = Info["contexts"] & {}>(): Host<Contexts>;
     /** Get the first dom element within by a selectors within the host (like document.querySelector). Should rarely be used, but it's here if needed. */
     queryElement<T extends Element = Element>(selector: string, withinBoundaries?: boolean, overHosts?: boolean): T | null;
     /** Get dom elements within by a selectors within the host (like document.querySelectorAll). Should rarely be used, but it's here if needed. */
@@ -643,35 +503,35 @@ export interface Component<
 
     // - Wired component - //
 
-    /** Creates a wrapper component (function) and attaches it to the .wrappers set for automatic updates.
-     * - The wrapper component is an intermediary component to help produce extra props to an inner component.
+    /** Creates a wired component (function) and attaches it to the .wired set for automatic updates.
+     * - The wired component is an intermediary component to help produce extra props to an inner component.
      *      * It receives its parent props normally, and then uses its `state` for the final props that will be passed to the inner component (as its `props`).
      * - About arguments:
-     *      1. The optional Builder function builds the common external props for all wrapped instances. These are added to the component's natural props.
-     *      2. The optional Mixer function builds unique props for each wrapped instance. If used, the common props are fed to it and the output of the mixer instead represents the final props to add.
+     *      1. The optional Builder function builds the common external props for all wired instances. These are added to the component's natural props.
+     *      2. The optional Mixer function builds unique props for each wired instance. If used, the common props are fed to it and the output of the mixer instead represents the final props to add.
      *      3. The only mandatory argument is the component to be used in rendering, can be a spread func, too. It's the one that receives the mixed props: from the tree flow and from the wiring source by handled by Mixer and Builder functions.
      *      4. Finally you can also define the name of the component (useful for debugging).
      * - Technically this method creates a component function (but could as well be a class extending Component).
-     *      - The important thing is that it's a unique component func/class and it has `api` member that is of `WrapperAPI` type (extending `ShadowAPI`).
+     *      - The important thing is that it's a unique component func/class and it has `api` member that is of `WiredAPI` type (extending `ComponentShadowAPI`).
      *      - When the component is instanced, its static class side contains the same `api` which serves as the connecting interface between the driver and all instances.
      *      - This class can then allow to set and refresh the common props, and trigger should-updates for all the instances and use signals.
-     *      - The `WrapperAPI` extension contains then features related to the automated mixing of parent props and custom data to produce final state -> inner component props.
-     * - Note that when creates a wrapper component through this method (on a Component component), it's added to the .wrappers set and automatically triggered for updates whenever this component is checked for should-updates.
+     *      - The `WiredAPI` extension contains then features related to the automated mixing of parent props and custom data to produce final state -> inner component props.
+     * - Note that when creates a wired component through this method (on a Component component), it's added to the .wired set and automatically triggered for updates whenever this component is checked for should-updates.
      */
-    createWrapper<
+    createWired<
          ParentProps extends Dictionary = {},
          BuildProps extends Dictionary = {},
          MixedProps extends Dictionary = ParentProps & BuildProps,
          Builder extends (lastProps: BuildProps | null) => BuildProps = (lastProps: BuildProps | null) => BuildProps,
-         Mixer extends (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wrapped: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps = (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wrapped: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps,
-         >(mixer: Mixer | BuildProps | null, renderer: ComponentTypeAny<{ props: MixedProps; }>, name?: string): ComponentWrapperFunc<ParentProps, BuildProps, MixedProps>;
-     createWrapper<
+         Mixer extends (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wired: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps = (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wired: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps,
+         >(mixer: Mixer | BuildProps | null, renderer: ComponentTypeAny<{ props: MixedProps; }>, name?: string): ComponentWiredFunc<ParentProps, BuildProps, MixedProps>;
+     createWired<
          ParentProps extends Dictionary = {},
          BuildProps extends Dictionary = {},
          MixedProps extends Dictionary = ParentProps & BuildProps,
          Builder extends (lastProps: BuildProps | null) => BuildProps = (lastProps: BuildProps | null) => BuildProps,
-         Mixer extends (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wrapped: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps = (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wrapped: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps,
-     >(builder: Builder | BuildProps | null, mixer: Mixer | null, renderer: ComponentTypeAny<{ props: MixedProps; }>, name?: string): ComponentWrapperFunc<ParentProps, BuildProps, MixedProps>;
+         Mixer extends (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wired: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps = (parentProps: ParentProps, addedProps: [Builder] extends [() => any] ? BuildProps : null, wired: Component<{ props: ParentProps; state: MixedProps; }>) => MixedProps,
+     >(builder: Builder | BuildProps | null, mixer: Mixer | null, renderer: ComponentTypeAny<{ props: MixedProps; }>, name?: string): ComponentWiredFunc<ParentProps, BuildProps, MixedProps>;
 
 
     // - Render - //
@@ -679,12 +539,6 @@ export interface Component<
     /** The most important function of any component: the render function. If not using functional rendering, override this manually on the class.
      */
     render(props: Props, state: State): MixDOMRenderOutput | MixDOMDoubleRenderer & MixDOMDoubleRenderer<Props, State>;
-
-
-    // // - Typing - //
-    
-    // /** This is not an actual javascript object - only the info used for typing the various features on the component. */
-    // _Info: Info;
 
 }
 
@@ -695,22 +549,21 @@ export interface ComponentOf<
     Class extends Dictionary = {},
     Signals extends Dictionary<(...args: any[]) => any> = {},
     Timers extends any = any,
-    HostInfo extends Host = Host,
-    Contexts extends MixDOMContextsAll = {}
-> extends Component<ComponentInfo<Props, State, Class, Signals, Timers, HostInfo, Contexts>> {}
+    Contexts extends MixDOMContextsAll = {},
+> extends Component<ComponentInfo<Props, State, Class, Signals, Timers, Contexts>> {}
 
 
 // - Component types - //
 
 /** Type for Component with ContextAPI. Also includes the signals that ContextAPI brings. */
-export interface ComponentWith<Info extends Partial<ComponentInfo> = {}> extends Component<Info & { signals: {} & Info["signals"] }> {
-    contextAPI: ContextAPIWith<Info & { signals: {} & Info["signals"] }>;
+export interface ComponentWith<Info extends Partial<ComponentInfo> = {}> extends Component<Info> {
+    contextAPI: ComponentContextAPI<Info["contexts"] & {}>;
 }
 export interface ComponentType<Info extends Partial<ComponentInfo> = {}> {
     /** Class type. */
     MIX_DOM_CLASS: string; // "Component"
-    /** May feature a ShadowAPI, it's put here to make typing easier. */
-    api?: ShadowAPI<Info>; // Too deep. Either ["constructor"] or api here.
+    /** May feature a ComponentShadowAPI, it's put here to make typing easier. */
+    api?: ComponentShadowAPI<Info>; // Too deep. Either ["constructor"] or api here.
     // We are a static class, and when instanced output a streaming source.
     new (props: Info["props"] & {}, boundary?: SourceBoundary): Component<Info>;
 
@@ -723,9 +576,8 @@ export interface ComponentTypeOf<
     Class extends Dictionary = {},
     Signals extends Dictionary<(...args: any[]) => any> = {},
     Timers extends any = any,
-    HostInfo extends Host = Host,
-    Contexts extends MixDOMContextsAll = {}
-> extends ComponentType<ComponentInfo<Props, State, Class, Signals, Timers, HostInfo, Contexts>> {}
+    Contexts extends MixDOMContextsAll = {},
+> extends ComponentType<ComponentInfo<Props, State, Class, Signals, Timers, Contexts>> {}
 
 /** This includes the _Info: { class } into the typing as if extending the class. */
 export type ComponentTypeWithClass<Info extends Partial<ComponentInfo> = {}> = [Info["class"]] extends [{}] ?
@@ -746,7 +598,7 @@ export type ComponentInstanceType<CompType extends ComponentType | ComponentFunc
 export type GetComponentInfo<Type extends ComponentTypeAny | Component> = ([Type] extends [(...args: any[]) => any | void] ? GetComponentFuncInfo<Type> : [(...args: any[]) => any | void] extends [Type] ? GetComponentFuncInfo<(() => any) & Type> : [Type] extends [Component] ? Type["constructor"]["_Info"] & {} : [Type] extends [ComponentType] ? Type["_Info"] & {} : (Type & { _Info: Partial<ComponentInfo>; })["_Info"] & {});
 // export type GetComponentFuncInfo<Type extends (...args: any[]) => any | void> = [undefined] extends [Parameters<Type>[1]] ? { props: Parameters<Type>[0]; } : (Parameters<Type>[1] & { _Info: {}; })["_Info"];
 export type GetComponentFuncInfo<Type extends (...args: any[]) => any | void> = [Type] extends [{ _Info?: Partial<ComponentInfo> | undefined; }] ? Type["_Info"] & {} : [undefined] extends [Parameters<Type>[1]] ? { props: Parameters<Type>[0]; } : (Parameters<Type>[1] & { _Info: {}; })["_Info"];
-export type ExtendInfoWith<Info extends Partial<ComponentInfo>, Comp extends ComponentTypeAny> = Info & ([Comp] extends [ComponentFunc] ? GetComponentFuncInfo<Comp> : [Comp] extends [SpreadFunc] ? { props: Parameters<Comp>[0] } : GetComponentInfo<Comp>);
+export type ExtendComponentInfoWith<Info extends Partial<ComponentInfo>, Comp extends ComponentTypeAny> = Info & ([Comp] extends [ComponentFunc] ? GetComponentFuncInfo<Comp> : [Comp] extends [SpreadFunc] ? { props: Parameters<Comp>[0] } : GetComponentInfo<Comp>);
 
 
 // - Function types - //
@@ -754,48 +606,39 @@ export type ExtendInfoWith<Info extends Partial<ComponentInfo>, Comp extends Com
 // Common declarations.
 /** This declares a ComponentFunc by <Info>. */
 export type ComponentFunc<Info extends Partial<ComponentInfo> = {}> = 
-    ((props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"], contextAPI: ContextAPI<Info>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };
+    // ((initProps: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"]) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };
+    ((initProps: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };
 
-// export type ComponentFunc<Info extends Partial<ComponentInfo> = {}> = 
-//     ((props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"]) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) |
-//     ((props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info> & Info["class"], contextAPI: ContextAPIWith<Info>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>);
-
-    /** This declares a ComponentFunc but allows to input the Infos one by one: <Props, State, Class, Signals, Timers, Contexts> */
-export type ComponentFuncOf<Props extends Dictionary = {}, State extends Dictionary = {}, Class extends Dictionary = {}, Signals extends Dictionary<(...args: any[]) => any> = {}, Timers extends any = any, HostInfo extends Host = Host, Contexts extends MixDOMContextsAll = {}> = 
-    (props: MixDOMPreComponentOnlyProps<Signals> & Props, component: Component<ComponentInfo<Props, State, Class, Signals, Timers, HostInfo, Contexts>> & Class, contextAPI?: ContextAPI<ComponentInfo<Props, State, Class, Signals, Timers, HostInfo, Contexts>>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Props, State>;
 /** This declares a ComponentFunc that will have a ContextAPI instance. */
 export type ComponentFuncWith<Info extends Partial<ComponentInfo> = {}> =
-    ((props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info> & Info["class"], contextAPI: ContextAPI<Info>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };
-/** This declares a ComponentFunc that will _not_ have a ContextAPI instance. */
-export type ComponentFuncWithout<Info extends Partial<ComponentInfo> = {}> =
-    ((props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"], contextAPI?: never) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info: Info; };
+    ((initProps: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };
+
+/** This declares a ComponentFunc but allows to input the Infos one by one: <Props, State, Class, Signals, Timers, Contexts> */
+export type ComponentFuncOf<Props extends Dictionary = {}, State extends Dictionary = {}, Class extends Dictionary = {}, Signals extends Dictionary<(...args: any[]) => any> = {}, Timers extends any = any, Contexts extends MixDOMContextsAll = {}> = 
+    (initProps: MixDOMPreComponentOnlyProps<Signals> & Props, component: Component<ComponentInfo<Props, State, Class, Signals, Timers, Contexts>> & Class, contextAPI: ComponentContextAPI<Contexts>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Props, State>;
 
 /** Either type of functional component: spread or a full component (with optional contextAPI). */
 export type ComponentFuncAny<Info extends Partial<ComponentInfo> = {}> = ComponentFunc<Info> | SpreadFunc<Info["props"] & {}>;
 
 // Internal helpers - exported only locally.
-export type ComponentFuncNoCtxShortcut<Info extends Partial<ComponentInfo> = {}> = (component: Component<Info> & Info["class"]) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>;
-export type ComponentFuncWithCtxShortcut<Info extends Partial<ComponentInfo> = {}> = (component: ComponentWith<Info> & Info["class"], contextAPI: ContextAPIWith<Info>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>;
+export type ComponentFuncShortcut<Info extends Partial<ComponentInfo> = {}> = (component: Component<Info> & Info["class"]) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>;
+export type ComponentFuncWithCtxShortcut<Info extends Partial<ComponentInfo> = {}> = (component: ComponentWith<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>;
 
 
 // - Create component function - //
 
-/** Create a component by func.
- * - You get the component as the first parameter (component), and optionally contextAPI instanced as the second but only if defining with 2 args: (component, contextAPI).
- * - Typing works similarly - including adding contextual signals with ContextAPI. However, component.contextAPI is not ensured. Use createComponentWith instead to get best typing with ContextAPI. */
-// export function createComponent<Info extends Partial<ComponentInfo> = {}>(func: (component: Component<Info> & Info["class"]) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>, name?: string): ComponentFunc<Info>;
-// export function createComponent<Info extends Partial<ComponentInfo> = {}>(func: (component: ComponentWith<Info> & Info["class"], contextAPI: ContextAPIWith<Info>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>, name?: string): ComponentFuncWith<Info>;
-export function createComponent<Info extends Partial<ComponentInfo> = {}>(func: (component: Component<Info> & Info["class"], contextAPI: ContextAPIWith<Info>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>, name?: string): ComponentFunc<Info>;
-export function createComponent<Info extends Partial<ComponentInfo> = {}>(func: ComponentFuncNoCtxShortcut<Info> | ComponentFuncWithCtxShortcut<Info>, name: string = func.name) {
+/** Create a component by func. You get the component as the first parameter (component), while initProps are omitted. */
+export function createComponent<Info extends Partial<ComponentInfo> = {}>(func: (component: Component<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>, name?: string): ComponentFunc<Info>;
+export function createComponent<Info extends Partial<ComponentInfo> = {}>(func: ComponentFuncShortcut<Info> | ComponentFuncWithCtxShortcut<Info>, name: string = func.name) {
     // This { [func.name]: someFunc }[func.name] trick allows to reuse the name dynamically. However, its mostly useful for classes, as the functions are named outside (= afterwards).
     return { [name]: 
         func.length > 1 ?
-            function (_props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info>, contextAPI: ContextAPIWith<Info>) { return (func as ComponentFuncWithCtxShortcut<Info>)(component, contextAPI); } as ComponentFuncWith<Info> :
-            function (_props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info>) { return (func as ComponentFuncNoCtxShortcut<Info>)(component); } as ComponentFunc<Info>
+            function (_props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info>, contextAPI: ComponentContextAPI<Info["contexts"] & {}>) { return (func as ComponentFuncWithCtxShortcut<Info>)(component, contextAPI); } as ComponentFuncWith<Info> :
+            function (_props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info>) { return (func as ComponentFuncShortcut<Info>)(component); } as ComponentFunc<Info>
     }[name];
 }
 
 /** Create a component with ContextAPI by func and omitting the first initProps: (component, contextAPI). The contextAPI is instanced regardless of argument count and component typing includes component.contextAPI. */
 export const createComponentWith = <Info extends Partial<ComponentInfo> = {}>(func: ComponentFuncWithCtxShortcut<Info>, name: string = func.name): ComponentFuncWith<Info> =>
     // This { [func.name]: someFunc }[func.name] trick allows to reuse the name dynamically.
-    ({ [name]: function (_props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info> & Info["class"], contextAPI: ContextAPIWith<Info>) { return (func as ComponentFuncWithCtxShortcut<Info>)(component, contextAPI); }})[name];
+    ({ [name]: function (_props: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: ComponentWith<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) { return (func as ComponentFuncWithCtxShortcut<Info>)(component, contextAPI); }})[name] as ComponentFuncWith<Info>;

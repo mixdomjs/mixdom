@@ -166,7 +166,7 @@ export class Ref<Type extends Node | ComponentTypeEither = Node | ComponentTypeE
             const component = treeNode.boundary?.component;
             for (const name in ref.signals) {
                 for (const listener of ref.signals[name]) {
-                    const [callback, extraArgs, flags] = listener as [callback: (...args: any[]) => any, extraArgs: any[] | null, flags: SignalManFlags ];
+                    const [callback, extraArgs, flags] = listener as [callback: (...args: any[]) => any, extraArgs: any[] | null, flags: SignalManFlags, groupId: any | null, origListeners?: SignalListener[] ];
                     component.listenTo(name as any, (...args: any[]) => extraArgs ? callback(component, ...args, ...extraArgs) : callback(component, ...args), null, flags, callback);
                 }
             }

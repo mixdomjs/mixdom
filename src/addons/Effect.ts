@@ -5,10 +5,9 @@
 import {
     ClassMixer,
     ClassType,
-    MixDOMCompareDepthByMode,
     MixDOMUpdateCompareMode
 } from "../static/_Types";
-import { _Lib } from "../static/_Lib";
+import { MixDOMCompareDepth, _Lib } from "../static/_Lib";
 
 
 // - Effect (stand alone) - //
@@ -37,7 +36,7 @@ function _EffectMixin<Memory = any>(Base: ClassType) {
         }
 
         public setDepth(depth?: number | MixDOMUpdateCompareMode | null): void {
-            this.depth = depth == null ? 1 : typeof depth === "string" ? MixDOMCompareDepthByMode[depth] : depth;
+            this.depth = depth == null ? 1 : typeof depth === "string" ? MixDOMCompareDepth[depth] : depth;
         }
 
         public reset(effect: EffectOnMount<Memory> | null, memory: Memory, forceRun: boolean = false): boolean {

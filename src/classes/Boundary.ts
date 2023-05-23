@@ -9,16 +9,15 @@ import {
     MixDOMComponentPreUpdates,
     MixDOMRenderOutput,
     MixDOMSourceBoundaryId,
+    MixDOMDefBoundary,
 } from "../static/_Types";
-import { SignalManFlags, callListeners } from "./SignalMan";
+import { SignalListener, SignalManFlags, callListeners } from "./SignalMan";
 import { _Defs } from "../static/_Defs";
 import { _Apply } from "../static/_Apply";
 import { ContentClosure } from "./ContentClosure";
-import { Component, ComponentWith, ComponentFunc, ComponentType } from "./Component";
+import { Component, ComponentFunc, ComponentType } from "./Component";
 import { ComponentStream, ComponentStreamType } from "./ComponentStream";
-import { ComponentShadow, ShadowAPI } from "./ComponentShadow";
-import { ContextAPI, ContextAPIWith } from "./ContextAPI";
-import { Context } from "./Context";
+import { ComponentShadow, ComponentShadowAPI } from "./ComponentShadow";
 import { Host } from "./Host";
 
 
@@ -40,7 +39,7 @@ class BaseBoundary {
 
     /** The reference for containing host for many technical things as well as general settings. */
     host: Host;
-    /** Whether the boundary is mounted. This is set to true right before onMount is called and false after willUnmount. */
+    /** Whether the boundary is mounted. Starts as false, set to true right before didMount is called and null after willUnmount. */
     isMounted: boolean | null;
     /** The fixed treeNode of the boundary is a very important concept and reference for technical reasons.
      * - It allows to keep the separate portions of the GroundedTree structure together by tying parent and child boundary to each other.
@@ -72,13 +71,6 @@ class BaseBoundary {
     component?: Component;
 
 
-    // - Contextual - //
-
-    /** These are contexts inherited from the parent. */
-    outerContexts: Record<string, Context | null>;
-    _outerContextsWere?: Record<string, Context | null>;
-
-
     constructor(host: Host, outerDef: MixDOMDefApplied, treeNode: MixDOMTreeNode) {
         // Init.
         this.host = host;
@@ -89,7 +81,6 @@ class BaseBoundary {
         this.sourceBoundary = null;
         this.parentBoundary = null;
         this.innerBoundaries = [];
-        this.outerContexts = {};
     }
 }
 
@@ -118,8 +109,8 @@ export class ContentBoundary extends BaseBoundary {
 
     /** Content boundaries will never feature component. So can be used for checks to know if is a source or content boundary. */
     component?: never;
-    /** Content boundaries will never feature boundaryId. So can be used for checks to know if is a source or content boundary. */
-    boundaryId?: never;
+    /** Content boundaries will never feature bId. So can be used for checks to know if is a source or content boundary. */
+    bId?: never;
 
 
     // This is the moment we open up our personal copy of the envelop. It has been just opened and reclosed with treeNode appropriate for us.
@@ -131,10 +122,11 @@ export class ContentBoundary extends BaseBoundary {
         // Assign.
         this.sourceBoundary = sourceBoundary;
         this.targetDef = targetDef;
-        this._innerDef = _Defs.newAppliedDefBy(targetDef, sourceBoundary.closure);
+        this._innerDef = _Defs.newAppliedDef(targetDef, sourceBoundary.closure);
     }
 
-    updateEnvelope(targetDef: MixDOMDefTarget, truePassDef?: MixDOMDefApplied | null) {
+    /** Apply a targetDef from the new envelope. Simply sets the defs accordingly. */
+    updateEnvelope(targetDef: MixDOMDefTarget, truePassDef?: MixDOMDefApplied | null): void {
         this.targetDef = targetDef;
         if (truePassDef)
             this._innerDef.childDefs = truePassDef.childDefs;
@@ -147,33 +139,24 @@ export class ContentBoundary extends BaseBoundary {
 export class SourceBoundary extends BaseBoundary {
 
 
+    // - Redefine - //
+
+    /** Redefine that the outer def is about a boundary. */
+    _outerDef: MixDOMDefApplied & MixDOMDefBoundary;
+
+
     // - Private-like temporary states - //
 
-    /** If true means that has not ever rendered yet.
-     * .. Needed for LiveFunctions to know if should call context data call right after the first render.
-     * .. Because with the wrapper render function, it's the first render call where things are initialized. */
-    _notRendered?: true;
     /** Temporary rendering state indicator. */
     _renderState?: "active" | "re-updated";
     /** Temporary collection of preUpdates - as the update data are always executed immediately. */
     _preUpdates?: MixDOMComponentPreUpdates;
-    /** Temporary marker to account for cutting cyclical updates automatically. Only used for Streams (could be used more generally).
-     * - Cyclical updates normally never happen. However, they can happen when updating components up the flow. In practice, these cases are extremely rare but can happen.
-     *      * As an example, inserting a stream (using withContent) in a common parent for insertion and source - though all in between must be spread funcs or have {props: "always"} update mode.
-     * - When starts updating a child boundary (in _Apply.applyDefPairs), it's marked with 1 and after finishing deletes the marker.
-     *      * If a cyclical update happens it's detected a couple of lines above by a boundary having _nUpdates already. Optionally can limit the count, defaults to 0 cyclical updates in host.settings.
-     * - Note that what this actually means (eg. for a stream), is that the content will be updated, but the components interested in its content will not be triggered for updates (-> won't re-render).
-     *      * For example when a common parent uses withContent, the parent won't re-render. But as normally, the contents are updated smoothly without intermediary ones re-rendering.
-     */
-    _nUpdates?: number;
-    /** Temporary flag used to auto-initialize the LiveContext for a component. */
-    _initContextAPI?: true;
 
 
-    // - host related - //
+    // - Host related - //
 
     /** Our host based quick id. It's mainly used for sorting, and sometimes to detect whether is content or source boundary, helps in debugging too. */
-    boundaryId: MixDOMSourceBoundaryId;
+    bId: MixDOMSourceBoundaryId;
 
 
     // - Type and main features - //
@@ -191,14 +174,12 @@ export class SourceBoundary extends BaseBoundary {
 
     // - Init & destroy - //
 
-    constructor(host: Host, outerDef: MixDOMDefApplied, treeNode: MixDOMTreeNode, sourceBoundary?: SourceBoundary) {
+    constructor(host: Host, outerDef: MixDOMDefApplied & MixDOMDefBoundary, treeNode: MixDOMTreeNode, sourceBoundary?: SourceBoundary) {
         // Init.
         super(host, outerDef, treeNode);
-        this._notRendered = true;
-        this.boundaryId = host.services.createBoundaryId();
+        this.bId = host.services.createBoundaryId();
         this.sourceBoundary = sourceBoundary || null;
         this.closure = new ContentClosure(this, sourceBoundary);
-        // this.localNeeds = null;
     }
 
     /** Should actually only be called once. Initializes a Component class and assigns renderer and so on. */
@@ -209,25 +190,22 @@ export class SourceBoundary extends BaseBoundary {
         // Setup the rendering.
         let tag = this._outerDef.tag;
         if (typeof tag === "function") {
+            
             // Prepare.
-            const shadowAPI = tag["api"] as ShadowAPI | undefined;
+            const shadowAPI = tag["api"] as ComponentShadowAPI | undefined;
             const renderFunc = tag["MIX_DOM_CLASS"] ? null : this._outerDef.tag as ComponentFunc;
             const withContextAPI = renderFunc && renderFunc.length >= 3 || false;
-            if (withContextAPI)
-                this._initContextAPI = true;
+            
             // Create component.
             const component = this.component = new (renderFunc ? shadowAPI ? { [renderFunc.name]: class extends Component {}}[renderFunc.name] : Component : tag as ComponentType)(props, this) as Component;
             this.component = component;
-            // We must assign contextAPI right after constructing the class if wasn't done during it already (2 lines above).
-            if (this._initContextAPI) {
-                if (!component.contextAPI)
-                    component.contextAPI = new ContextAPI(component) as ContextAPIWith;
-                delete this._initContextAPI;
-            }
+            if (withContextAPI)
+                component.initContextAPI();
+            
             // Assign renderFunc.
             if (renderFunc)
                 // For the first time, let's wrap the original function - presumably only called once, then gets reassigned.
-                component.render = (freshProps) => renderFunc.apply(component, withContextAPI ? [freshProps, component, component.contextAPI] : [ freshProps, component ]);
+                component.render = withContextAPI ? (freshProps) => renderFunc.call(component, freshProps, component, component.contextAPI) : (freshProps) => renderFunc.call(component, freshProps, component);
 
             // Note. In class form, in case uses closure in the constructor, should pass the 2nd arg as well: super(props, boundary).
             // .. This way, it's all handled and ready, and there's no need to add special checks or do some initial "flushing".
@@ -236,7 +214,7 @@ export class SourceBoundary extends BaseBoundary {
                 // We set a readonly value here - it's on purpose: it's only set if wasn't set in the constructor (by not being passed to super).
                 (component as { boundary: SourceBoundary }).boundary = this;
             
-            // Handle ShadowAPI.
+            // Handle ComponentShadowAPI.
             if (shadowAPI) {
                 // Make sure is assigned for functional components. If was a class then assumes it was unique class already.
                 component.constructor.api = shadowAPI;
@@ -245,7 +223,7 @@ export class SourceBoundary extends BaseBoundary {
                 // Add listeners.
                 for (const name in shadowAPI.signals) {
                     for (const listener of shadowAPI.signals[name]) {
-                        const [callback, extraArgs, flags ] = listener as [callback: (...args: any[]) => any, extraArgs: any[] | null, flags: SignalManFlags ];
+                        const [callback, extraArgs, flags ] = listener as [callback: (...args: any[]) => any, extraArgs: any[] | null, flags: SignalManFlags, groupId: any | null, origListeners?: SignalListener[] ];
                         component.listenTo(name as any, (...args: any[]) => extraArgs ? callback(component, ...args, ...extraArgs) : callback(component, ...args), null, flags, callback);
                     }
                 }
@@ -279,38 +257,27 @@ export class SourceBoundary extends BaseBoundary {
 
     render(iRecursion: number = 0): MixDOMRenderOutput {
         // Rendering state.
+        const firstTime = this.isMounted === false && !this._renderState;
         if (!iRecursion)
             this._renderState = "active";
-        // Remove temporary children needs marker.
-        const cntApi = this.component.contentAPI;
-        // .. Parental passing.
-        if (cntApi.localNeeds === "temp")
-            cntApi.needs(null);
-        // .. Streams.
-        if (cntApi.streamNeeds)
-            for (const [ Stream, needs ] of cntApi.streamNeeds)
-                if (needs === "temp")
-                    cntApi.needsFor(Stream as (ComponentStreamType), null);
         // Render.
-        const props = this._outerDef.props || {};
-        const component = this.component as ComponentWith; // For easier typing, let's assume context, too.
-        const content = component.render(props, component.state);
-        // Remove first time marker.
-        const firstTime = this._notRendered;
-        if (firstTime)
-            delete this._notRendered;
-        // Reassign new render function and render again.
-        if (typeof content === "function") {
-            // Reassign.
+        const component = this.component;
+        const content = component.render(this._outerDef.props || {}, component.state);
+        const reassign = typeof content === "function";
+        // Reassign.
+        if (reassign)
             component.render = content;
-            // Special case. Let's call the data listeners (attached by listenToData) for the first time.
-            if (component.contextAPI && firstTime && component.contextAPI.dataListeners.size)
-                component.contextAPI.askDataBuildBy(true, true); // For all (true), and immediately (true).
-            // Re-render.
+        // If on the mount run, call the data listeners.
+        // .. We do this even in class form, due to the mixing capabilities there might be functional components mixed in, too.
+        // .. So will anyway receive the initial call right after the initial render - double renderer or not.
+        if (firstTime && component.contextAPI)
+            component.contextAPI.callDataBy();
+        // Re-render - don't add iRecursion, we got a new render function.
+        if (reassign)
             return this.render(iRecursion);
-        }
-        // Run again and return the new ones instead.
+        // Wanted to update during render. Run again and return the new render defs instead.
         if (this._renderState === "re-updated") {
+            // Render with iRecursion counting.
             const settings = this.host.settings;
             if (settings.maxReRenders < 0 || iRecursion < settings.maxReRenders) {
                 iRecursion++;

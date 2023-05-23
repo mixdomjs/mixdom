@@ -8,7 +8,6 @@ import {
     MixDOMTreeNodeDOM,
     MixDOMTreeNodeBoundary,
     MixDOMTreeNodeHost,
-    MixDOMTreeNodeContexts,
     MixDOMTreeNodePortal,
     MixDOMDefKeyTag,
     MixDOMDefTarget,
@@ -21,30 +20,25 @@ import {
     MixDOMContentSimple,
     MixDOMContentEnvelope,
     MixDOMBoundary,
-    MixDOMContextRefresh,
-    MixDOMContextAttach,
 } from "./_Types";
 import { callListeners } from "../classes/SignalMan";
 import { _Defs } from "./_Defs";
 import { _Find } from "./_Find";
-import { mixDOMContent } from "../MixDOM";
+import { MixDOMContent } from "../MixDOM";
 import { HostRender } from "../classes/HostRender";
 import { ContentBoundary, SourceBoundary } from "../classes/Boundary";
 import { Ref } from "../classes/Ref";
 import { ComponentStream, ComponentStreamType } from "../classes/ComponentStream";
-import { Context } from "../classes/Context";
 import { ContentClosure } from "../classes/ContentClosure";
 import { HostServices } from "../classes/HostServices";
 import { Host } from "../classes/Host";
-import { ContextAPI } from "../classes/ContextAPI";
-import { ComponentType } from "../classes/Component";
+import { ComponentType, ComponentWith } from "../classes/Component";
 import { ComponentShadowType } from "../classes/ComponentShadow";
 
 
 // - Methods - //
 
-type OuterContexts = Record<string, Context | null>;
-type ToApplyPair = [MixDOMDefTarget, MixDOMDefApplied, MixDOMTreeNode, OuterContexts];
+type ToApplyPair = [MixDOMDefTarget, MixDOMDefApplied, MixDOMTreeNode];
 
 export const _Apply = {
 
@@ -53,8 +47,8 @@ export const _Apply = {
         "fragment": 1,
         "portal": 2,
         "pass": 3,
-        "contexts": 4,
-        "host": 5,
+        "host": 4,
+        // "contexts": 5,
     }, // as Record<MixDOMDefType, number>,
 
 
@@ -63,7 +57,7 @@ export const _Apply = {
     // Visual analogy: ContentClosure as a SEALED ENVELOPE:
     //
     // - Think of the ContentClosure as a sealed envelope that gets passed from the original boundary to a sub-boundary in it.
-    //   * The contents of the envelope describe the contents that this particular sub-boundary has from its direct parent boundary.
+    //   * The contents of the envelope describe the contents that this particular sub-boundary has from its source boundary.
     //   * The contents also contain a direct reference to the paired def branch of the original boundary (to update its treeNode assignments on grounding, or clear on ungrounding).
     //
     // - If the sub-boundary does not ground the content directly, but passes it to another sub-sub-boundary, then a new envelope is written for it.
@@ -77,16 +71,16 @@ export const _Apply = {
     //     1. After opening the envelope, the pairing process is finished (by attaching treeNodes) and an array of pairs to be grounded is formed.
     //     2. The pairs are fed to a new grounding process, which grounds dom elements and mounts/updates sub-boundaries within collecting getting render infos.
     //     3. If the newly grounded defs contained more envelopes, then they get opened similarly to this envelope and render infos from it are added to the flow.
-    //        .. Note that we only open the grounded envelopes - envelopes nested in sub-boundaries will be open when they are grounded (if ever).
+    //        .. Note that we only open the grounded envelopes - envelopes nested in sub-boundaries will be opened when they are grounded (if ever).
     //   b) For a CONTENT COPY:
     //     - It's basically the same routine as on boundary mount/update, but just done for closure via ContentBoundary instead of SourceBoundary.
     //     - This is because, although sharing the same target defs, each copy is independent from the original render scope's applied defs - each copy has its own applied def root and should do its own pairing.
     //
-    // - If the content gets ungrounded by a nested component that earlier grounded it:
+    // - If the content gets ungrounded by a nested boundary that earlier grounded it:
     //     * All its contents get destroyed, which includes destroying any nested sub-boundaries and envelopes - collecting infos for all this.
     //     * For a TRUE PASS this means modifying the original applied defs treeNode assignments accordingly.
     //       .. If the content later gets re-grounded, then it's like it was grounded for the first time.
-    //     * For a CONTENT COPY, it's simply the destruction - it also gets removed from the map that maps copies.
+    //     * For a CONTENT COPY, it's simply the destruction - it also gets removed from the bookkeeping that maps copies.
     //
     // - When the original boundary re-renders:
     //   * Any new sub-boundaries will trigger writing new envelopes for them, just like on the first render - collecting infos.
@@ -100,7 +94,8 @@ export const _Apply = {
     //   b) For a CONTENT COPY:
     //      - It's simply the same routine as on boundary mount/update but for closures.
     //
-    // Using getChildren():
+    // 
+    // EXTRA OLD NOTES (before v3.1) - Using getChildren():
     // - Using the getChildren method results in reading the child defs that are held inside the sealed envelope.
     //   * In other words, it's like a spying technology that allows to read what's inside the envelope without opening it.
     // - The boundary that does the spying also needs to be updated when contents have changed - to refresh the info, otherwise would have old info.
@@ -116,7 +111,7 @@ export const _Apply = {
      *   - However, the treeNode part of the process was not handled for us. So we must do it now.
      *   - After having updated treeNodes and got our organized toApplyPairs, we can just feed them to _Apply.applyDefPairs to get renderInfos and boundaryUpdates.
      */
-    runContentPassUpdate(contentBoundary: ContentBoundary, forceUpdate: boolean = false): MixDOMChangeInfos {
+    runPassUpdate(contentBoundary: ContentBoundary, forceUpdate: boolean = false): MixDOMChangeInfos {
 
         // 1. Make a pre loop to assign groundable treeNodes.
         const [ toApplyPairs, toCleanUp, emptyMovers ] = _Apply.assignTreeNodesForPass(contentBoundary);
@@ -141,7 +136,7 @@ export const _Apply = {
             }
             // Clean up any defs that were detected by custom clean up.
             if (unusedDefs.size) {
-                const infos = _Apply.cleanUpBoundaryDefs(unusedDefs, contentBoundary.host.settings.devLogCleanUp);
+                const infos = _Apply.cleanUpDefs(unusedDefs);
                 // Add to the beginning.
                 renderInfos = infos[0].concat(renderInfos);
                 boundaryChanges = infos[1].concat(boundaryChanges);
@@ -195,7 +190,7 @@ export const _Apply = {
     runBoundaryUpdate(byBoundary: SourceBoundary | ContentBoundary, forceUpdate: boolean = false): MixDOMChangeInfos {
 
 
-        // - 1. Handle source boundary vs. content boundary vs. stream. - //
+        // - 1. Handle source boundary vs. content boundary. - //
 
 
         // Prepare.
@@ -205,12 +200,12 @@ export const _Apply = {
         let boundaryChanges: MixDOMSourceBoundaryChange[];
 
         // If source boundary, render it to get the preDef tree.
-        if (byBoundary.boundaryId) {
+        if (byBoundary.bId) {
             // Render.
-            preDef = _Defs.newDefFromContent(byBoundary.render());
+            preDef = _Defs.newDefFrom(byBoundary.render());
             // Make sure has appliedDef for a preDef.
             if (preDef && !appliedDef)
-                appliedDef = _Defs.newAppliedDefBy(preDef, byBoundary.closure);
+                appliedDef = _Defs.newAppliedDef(preDef, byBoundary.closure);
         }
         // For content boundary, just get the already rendered def tree.
         else
@@ -274,7 +269,7 @@ export const _Apply = {
             // Nullify and cut.
             // .. The innerBoundaries are normally reassigned on .applyDefPairs.
             byBoundary.innerBoundaries = [];
-            // .. Note. The cutting would normally be done in the processing in .assignTreeNodesForChildren (part of .pairDefs).
+            // .. Note. The cutting would normally be done in the processing in .assignTreeNodesFor (part of .pairDefs).
             byBoundary.treeNode.children = [];
             // .. Note that the appliedDef will never be null for content boundary. Otherwise it wouldn't have gotten here.
             byBoundary._innerDef = null;
@@ -285,7 +280,7 @@ export const _Apply = {
 
         // Clean up any defs that were unused by the pairing process.
         if (unusedDefs.size) {
-            const infos = _Apply.cleanUpBoundaryDefs(unusedDefs, byBoundary.host.settings.devLogCleanUp);
+            const infos = _Apply.cleanUpDefs(unusedDefs);
             // Add to the beginning.
             renderInfos = infos[0].concat(renderInfos);
             boundaryChanges = infos[1].concat(boundaryChanges);
@@ -299,10 +294,7 @@ export const _Apply = {
         if (!byBoundary.isMounted)
             byBoundary.isMounted = true;
 
-        // Clear that contexts were updated - because we did update.
-        delete byBoundary._outerContextsWere;
-
-
+        
         // - 6. Return collected render infos. - //
 
         return [ renderInfos, boundaryChanges ];
@@ -317,7 +309,7 @@ export const _Apply = {
      * - The process includes applying dom tags into dom elements (not rendering yet) and instancing/updating sub boundaries.
      * - The array of toApplyPairs to be fed here should only include the "groundable" ones and in tree order (use .pairDefs method).
      *   .. All the other content (= not included in toApplyPairs) gets passed on as a closure by creating/updating it from .childDefs.
-     * - Each item in the toApplyPairs is [toDef, aDef, treeNode, outerContexts ]
+     * - Each item in the toApplyPairs is [toDef, aDef, treeNode ]
      * - Importantly this collects and returns ordered renderInfos and boundaryCalls, which can be later executed.
      */
     applyDefPairs(byBoundary: SourceBoundary | ContentBoundary, toApplyPairs: ToApplyPair[], forceUpdate: boolean = false): MixDOMChangeInfos {
@@ -338,7 +330,7 @@ export const _Apply = {
         // .. We update each def collecting render infos, and on boundaries create/update content closure and call mount/update.
 
     	// Prepare.
-        const sourceBoundary = (byBoundary.boundaryId ? byBoundary : byBoundary.sourceBoundary) as SourceBoundary;
+        const sourceBoundary = (byBoundary.bId ? byBoundary : byBoundary.sourceBoundary) as SourceBoundary;
         const movedNodes: MixDOMTreeNode[] = [];
         const domPreCheckType = byBoundary.host.settings.preCompareDOMProps;
 
@@ -347,12 +339,10 @@ export const _Apply = {
 
         // Loop all toApplyPairs.
         let allChanges: MixDOMChangeInfos = [ [], [] ];
-        // let renderInfos: MixDOMRenderInfo[] = [];
-        // let boundaryChanges: MixDOMSourceBoundaryChange[] = [];
         for (const defPair of toApplyPairs) {
 
             // Prepare.
-            const [ toDef, aDef, treeNode, outerContexts ] = defPair;
+            const [ toDef, aDef, treeNode ] = defPair;
             const mountRun = aDef.action === "mounted";
 
             // Detect move. (For dom tags, boundaries and passes handled separately.)
@@ -365,7 +355,6 @@ export const _Apply = {
                     // Pass is handlded in contentGrounded, so it's not handled here to not double.
                     // case "pass":
 
-                    case "contexts":
                     case "fragment":
                         // Move roots.
                         for (const node of _Find.rootDOMTreeNodes(treeNode, true, true)) { // <-- We use includeEmpty because maybe not all domNodes are not mounted yet.
@@ -403,32 +392,21 @@ export const _Apply = {
 
                 // Stream.
                 let contentPass = aDef.contentPass;
-                let contentKey = mixDOMContent.key;
-                if (aDef.getContentStream) {
+                let contentKey = MixDOMContent.key;
+                if (aDef.getStream) {
                     // Get fresh stream.
-                    const Stream = aDef.getContentStream() as ComponentStreamType;
+                    const Stream = aDef.getStream() as ComponentStreamType;
                     // Update key - it's used to detect true pass.
                     contentKey = Stream.Content?.key;
                     // Changed - only happens for contextual components, except for initial assigning (without the unground part).
                     const newClosure: ContentClosure | null = Stream.closure || null;
                     if (contentPass !== newClosure) {
-                        // Unground and unlink.
-                        if (contentPass) {
-                            // Remove the stream link.
-                            contentPass.streamLinks?.delete(aDef);
-                            // Unground old.
+                        // Unground.
+                        if (contentPass)
                             _Apply.mergeChanges( allChanges, contentPass.contentUngrounded(aDef) );
-                        }
                         // Assign new - will be grounded below.
                         aDef.contentPass = newClosure;
                         contentPass = newClosure;
-                        // Add new stream link.
-                        if (newClosure) {
-                            if (!newClosure.streamLinks)
-                                newClosure.streamLinks = new Set([aDef]);
-                            else
-                                newClosure.streamLinks.add(aDef);
-                        }
                     }
                 }
 
@@ -516,51 +494,16 @@ export const _Apply = {
                     }
                     break;
 
-                // Contexts (insertion, removal, swapping).
-                case "contexts": {
-                    const aContexts = aDef.contexts;
-                    const toContexts = toDef.contexts || null;
-                    if (aContexts !== toContexts) {
-                        // Remove treeNode from the contexts.
-                        if (aContexts) {
-                            for (const name in aContexts) {
-                                const aCtx = aContexts[name];
-                                if (aCtx && aCtx !== (toContexts && toContexts[name] || null)) {
-                                    // Call remove.
-                                    if (aCtx.onRemoveFrom)
-                                        aCtx.onRemoveFrom(treeNode as MixDOMTreeNodeContexts, name);
-                                    // Do the removing - either one name or most often the whole entry.
-                                    const tNames = aCtx.inTree.get(treeNode as MixDOMTreeNodeContexts);
-                                    tNames && tNames.size > 1 ? tNames.delete(name) : aCtx.inTree.delete(treeNode as MixDOMTreeNodeContexts);
-                                }
-                            }
-                        }
-                        // Add treeNode to the context.
-                        for (const name in toContexts) {
-                            const toCtx = toContexts[name];
-                            if (toCtx && toCtx !== (aContexts && aContexts[name] || null)) {
-                                // Call add.
-                                if (toCtx.onInsertInto)
-                                    toCtx.onInsertInto(treeNode as MixDOMTreeNodeContexts, name);
-                                // Do the adding - either one name or most often the whole entry.
-                                const tNames = toCtx.inTree.get(treeNode as MixDOMTreeNodeContexts);
-                                tNames ? tNames.add(name) : toCtx.inTree.set(treeNode as MixDOMTreeNodeContexts, new Set([name]));
-                            }
-                        }
-                        // Apply.
-                        aDef.contexts = toContexts;
-                    }
-                    break;
-                }
-
                 // Case: Sub boundary.
                 // .. We only create it here, updating it is handled below.
                 case "boundary":
-                    // Create new boundary.
                     if (mountRun) {
+                        // Pre-attach the contexts.
+                        if (toDef.attachedContexts)
+                            aDef.attachedContexts = toDef.attachedContexts;
+                        // Create new boundary.
                         const boundary = new SourceBoundary(byBoundary.host, aDef, treeNode, sourceBoundary);
                         boundary.parentBoundary = byBoundary;
-                        boundary.outerContexts = { ...outerContexts };
                         treeNode.boundary = boundary;
                     }
                     break;
@@ -572,34 +515,46 @@ export const _Apply = {
                         // Prepare.
                         const origHost = aDef.host;
                         let host = origHost;
-                        // If was not updating an existing one and is already in use, we should try to duplicate.
-                        if (aDef.action === "mounted" && origHost.groundedTree.parent) {
-                            // See if can duplicate.
-                            const duplicatable = host.settings.duplicatableHost;
-                            if (typeof duplicatable === "function") {
-                                const talkback = duplicatable(aDef.host, treeNode as MixDOMTreeNodeHost);
-                                if (!talkback)
-                                    break;
-                                if (typeof talkback === "object") {
-                                    host = talkback;
-                                    // Was given a custom - make sure it's not taken.
-                                    if (host.groundedTree.parent || host.sourceHost)
+                        // Upon mounting.
+                        if (aDef.action === "mounted") {
+                            // If was not updating an existing one and is already in use, we should try to duplicate.
+                            if (origHost.groundedTree.parent) {
+                                // See if can duplicate.
+                                const duplicatable = host.settings.duplicatableHost;
+                                if (typeof duplicatable === "function") {
+                                    const talkback = duplicatable(aDef.host, treeNode as MixDOMTreeNodeHost);
+                                    if (!talkback)
                                         break;
+                                    if (typeof talkback === "object") {
+                                        // Was given a custom - make sure it's not taken.
+                                        if (talkback.groundedTree.parent)
+                                            break;
+                                        host = talkback;
+                                    }
                                 }
+                                // Cannot duplicate.
+                                else if (!duplicatable)
+                                    break;
+                                // Got thru - create a new host (unless provided a new one).
+                                const shadowAPI = origHost.shadowAPI;
+                                if (host === origHost)
+                                    host = new Host( origHost.services.getRootDef(true), null, origHost.settings, null, shadowAPI);
+                                // If gave a custom Host, then swap ShadowAPI and update instances manually.
+                                else if (host.shadowAPI !== origHost.shadowAPI) {
+                                    host.shadowAPI.hosts.delete(host);
+                                    host.shadowAPI = origHost.shadowAPI;
+                                }
+                                // Copy context assignments.
+                                for (const ctxName in shadowAPI.contexts) {
+                                    const ctx = shadowAPI.contexts[ctxName];
+                                    if (ctx)
+                                        host.contextAPI.setContext(ctxName as never, ctx as never, false);
+                                }
+                                // Set into the def.
+                                aDef.host = host;
                             }
-                            // Cannot duplicate.
-                            else if (!duplicatable)
-                                break;
-                            // Got thru - create a new host (unless provided a new one).
-                            if (host === origHost)
-                                host = new Host( origHost.services.getRootDef(true), null, origHost.settings);
-                            // Link.
-                            host.sourceHost = origHost.sourceHost || origHost;
-                            if (!origHost.ghostHosts)
-                                origHost.ghostHosts = new Set();
-                            origHost.ghostHosts.add(host);
-                            // Set into the def.
-                            aDef.host = host;
+                            // In any case make sure is found in the shadowAPI hosts.
+                            origHost.shadowAPI.hosts.add(host);
                         }
 
                         // Handle reassigning (duplicated or not).
@@ -608,9 +563,6 @@ export const _Apply = {
                         treeNode.children = [ host.groundedTree ];
                         // .. Render infos.
                         allChanges[0].push( { treeNode: treeNode as MixDOMTreeNodeHost, move: true } );
-                        // .. Outer contexts.
-                        if (host.settings.welcomeContextsUpRoot)
-                            host.services.onContextPass( outerContexts );
                         break;
                     }
             }
@@ -647,11 +599,10 @@ export const _Apply = {
                         allChanges[0].push( info );
                     }
                 }
-                // Attach signals - we just pass the dictionary like object. It will be used directly at the appropriate moment.
-                if (toDef.attachedSignals)
-                    aDef.attachedSignals = toDef.attachedSignals;
-                else if (aDef.attachedSignals)
-                    delete aDef.attachedSignals;
+                // Attach signals - we just pass the dictionary like object.
+                // .. It will be used directly at the appropriate moment as a source for extra calls.
+                if (aDef.attachedSignals !== toDef.attachedSignals)
+                    toDef.attachedSignals ? aDef.attachedSignals = toDef.attachedSignals : delete aDef.attachedSignals;
             }
 
 
@@ -675,89 +626,48 @@ export const _Apply = {
 
                 // Finish the constructing only now.
                 // .. This way the process is similar to functional and class, and we need no special handling.
-                if (mountRun)
+                if (mountRun) {
+                    if (aDef.tag && aDef.tag["_WithContent"]) { 
+                        const withDef = aDef.tag["_WithContent"] as MixDOMDefTarget;
+                        const sClosure: ContentClosure = withDef.getStream ? withDef.getStream().closure : sourceBoundary.closure;
+                        (sClosure.withContents || (sClosure.withContents = new Set())).add(boundary);
+                    }
                     boundary.reattach();
-
-                // Attach signals by prop tunnelling, before updating the boundary (but after creating it, if mountRun).
-                const component = boundary.component;
-                if (aDef.attachedSignals !== toDef.attachedSignals) {
-                    const from = aDef.attachedSignals;
-                    const to = toDef.attachedSignals;
-                    if (from) {
-                        for (const key in from) {
-                            const info = from[key];
-                            if (!to || info !== to[key]) 
-                                component.unlistenTo(key as any, info);
-                        }
-                    }
-                    if (to) {
-                        for (const key in to) {
-                            const info = to[key];
-                            if (!from || from[key] !== info)
-                                component.listenTo(key as any, info);
-                        }
-                    }
                 }
 
-                // Attach contexts by prop tunnelling, before updating the boundary (but after creating it, if mountRun).
-                if (aDef.attachedContexts || toDef.attachedContexts)
-                    _Apply.handleAttachedContexts(aDef, toDef);
+                // Attach signals by props, before updating the boundary (but after creating it, if mountRun).
+                const component = boundary.component;
+                if (aDef.attachedSignals !== toDef.attachedSignals) {
+                    // Changes.
+                    const diffs = _Lib.getDictionaryDiffs(aDef.attachedSignals || {}, toDef.attachedSignals || {});
+                    if (diffs) {
+                        for (const key in diffs)
+                            diffs[key] ? component.listenTo(key as any, diffs[key]) : component.unlistenTo(key as any, (aDef.attachedSignals as any)[key]);
+                    }
+                    // In any case, assign the new ones to the applied def.
+                    aDef.attachedSignals = toDef.attachedSignals;
+                }
 
-                // If the context did change, let's mark it here.
-                // .. If the boundary will update, it will automatically (by background architecture)
-                // .... find that contexts have changed for sub boundaries, and handle it.
-                // .. If it will not update, we will collect the interested ones below.
-                if (!mountRun) {
-                    // Check old.
-                    let didChange: MixDOMContextRefresh = 0;
-                    const cApi = component.contextAPI;
-                    const bOuterCtxs = boundary.outerContexts;
-                    let changedNames: string[] | null = null;
-                    for (const name in bOuterCtxs) {
-                        // No change, or is overridden at a more important level - no change.
-                        const oldCtx = bOuterCtxs[name];
-                        if (outerContexts[name] === oldCtx || cApi && cApi.getContext(name as never, MixDOMContextAttach.Parent | MixDOMContextAttach.Overridden) !== undefined)
-                            continue;
-                        didChange |= MixDOMContextRefresh.Otherwise;
-                        if (!changedNames)
-                            changedNames = [];
-                        changedNames.push(name);
-                        // Update.
-                        if (cApi)
-                            didChange |= _Apply.helpUpdateContext(cApi, name, outerContexts[name] || null, oldCtx);
-                    }
-                    // Check new.
-                    for (const name in outerContexts) {
-                        // Already handled above.
-                        if (bOuterCtxs[name] !== undefined)
-                            continue;
-                        // No change, or is overridden at a more important level - no change.
-                        const newCtx = outerContexts[name];
-                        if (bOuterCtxs[name] === newCtx || cApi && cApi.getContext(name as never, MixDOMContextAttach.Parent | MixDOMContextAttach.Overridden) !== undefined)
-                            continue;
-                        // Remove from context.
-                        didChange |= MixDOMContextRefresh.Otherwise;
-                        if (!changedNames)
-                            changedNames = [];
-                        changedNames.push(name);
-                        if (cApi)
-                            didChange |= _Apply.helpUpdateContext(cApi, name, newCtx, null);
-                    }
-                    // Changed - mark for contextual updates.
-                    if (didChange && changedNames) {
-                        // Collect old and update.
-                        // .. By doing this we also mark that it if it didn't update, we will update the contexts (below).
-                        boundary._outerContextsWere = bOuterCtxs;
-                        boundary.outerContexts = { ...outerContexts };
-                        // Let's mark that it has contextual updates.
-                        if (cApi && HostServices.shouldUpdateContextually(didChange)) {
-                            const pUpdates = boundary._preUpdates;
-                            if (!pUpdates)
-                                boundary._preUpdates = { contextual: changedNames };
-                            else
-                                pUpdates.contextual = pUpdates.contextual ? [... new Set([...pUpdates.contextual, ...changedNames]) ] : changedNames;
+                // Attach contexts by props, before updating the boundary.
+                if (aDef.attachedContexts !== toDef.attachedContexts) {
+                    // Note that on the mountRun these have already been assigned above.
+                    // .. The prodecude is finished then on the initContextAPI().
+                    if (component.contextAPI) {
+                        // Handle diffs.
+                        const diffs = _Lib.getDictionaryDiffs(aDef.attachedSignals || {}, toDef.attachedSignals || {});
+                        if (diffs) {
+                            // Loop each.
+                            for (const ctxName in diffs)
+                                diffs[ctxName] ? component.contextAPI.setContext(ctxName as never, diffs[ctxName] as any) : component.contextAPI.setContext(ctxName as never, null);
+                            // Call data listeners.
+                            // .. Note that on the mount run, there can only be component.contextAPI at this point in class form.
+                            // .. In functional form, it will be detected on the first render and called right after assigning the new renderer and calling again.
+                            // .. If not on the mount run, then we can just call them now. It's just about to go the update process below in any case.
+                            component.contextAPI.callDataBy(mountRun || Object.keys(diffs) as any);
                         }
                     }
+                    // In any case, assign the new ones to the applied def.
+                    aDef.attachedContexts = toDef.attachedContexts;
                 }
 
 
@@ -774,15 +684,15 @@ export const _Apply = {
                     // Create new fragment to hold the childDefs, and keep the reference for aDef.childDefs (needed for true content pass)..!
                     if (!oldEnvelope) {
                         newEnvelope = {
-                            appliedDef: { tag: null, MIX_DOM_DEF: "fragment", childDefs: aDef.childDefs, action: "mounted" },
-                            targetDef: { tag: null, MIX_DOM_DEF: "fragment", childDefs: toDef.childDefs }
+                            applied: { tag: null, MIX_DOM_DEF: "fragment", childDefs: aDef.childDefs, action: "mounted" },
+                            target: { tag: null, MIX_DOM_DEF: "fragment", childDefs: toDef.childDefs }
                         };
                     }
                     // Just create a new envelope based on existing.
                     else {
                         newEnvelope = {
-                            appliedDef: { ...oldEnvelope.appliedDef, childDefs: aDef.childDefs, action: aDef.action },
-                            targetDef: { ...oldEnvelope.targetDef, childDefs: toDef.childDefs },
+                            applied: { ...oldEnvelope.applied, childDefs: aDef.childDefs, action: aDef.action },
+                            target: { ...oldEnvelope.target, childDefs: toDef.childDefs },
                         };
                     }
                 }
@@ -791,10 +701,23 @@ export const _Apply = {
                 if (isStream)
                     allChanges = _Apply.mergeChanges( allChanges, (component as ComponentStream).reattachSource(true) );
 
-                // Do a "pre-refresh" to update the info for the update runs below.
-                // .. But we will not yet apply the content to grounded - maybe they will not be there anymore, or maybe there'll be more.
-                const skipContent = !oldEnvelope && !newEnvelope;
-                const bInterested = skipContent ? null : boundary.closure.preRefresh(newEnvelope, null, boundary._nUpdates != null && boundary._nUpdates > boundary.host.settings.maxCyclicalUpdates);
+                // Pre-refresh and collect interested.
+                /** The closure of this boundary.
+                 * - If `null`, then there's no need to use it because content was empty and will be empty. 
+                 * - We use this simply to skip having a skipContent variable and for better minified shortcutting. */
+                const bClosure = oldEnvelope || newEnvelope ? boundary.closure : null;
+                let bInterested: Set<SourceBoundary> | null = null;
+                if (bClosure) {
+                    // Do a "pre-refresh" to update the info for the update runs below.
+                    // .. But we will not yet apply the content to grounded - maybe they will not be there anymore, or maybe there'll be more.
+                    bInterested = bClosure.preRefresh(newEnvelope);
+                    // Update the chainedClosures chaining.
+                    const sClosure = sourceBoundary.closure;
+                    if (aDef.hasPassWithin)
+                        (sClosure.chainedClosures || (sClosure.chainedClosures = new Set())).add(bClosure);
+                    else
+                        sClosure.chainedClosures?.delete(bClosure);
+                }
 
 
                 // - Run updates - //
@@ -803,16 +726,10 @@ export const _Apply = {
                 // .. We tell that our bInterested are ordered, because they came from the content passing process (if we had any).
                 // .. Actually no: they are not ordered - the sub branches are, but the insertion points might not be (they might move).
 
-                // Pre-mark to prevent cyclical.
-                if (isStream)
-                    boundary._nUpdates = (boundary._nUpdates || 0) + 1;
                 // Run.
                 allChanges = _Apply.mergeChanges( allChanges, byBoundary.host.services.updateBoundary(boundary, forceUpdate, movedNodes, bInterested) );
-                // Post-mark. The detection is a couple of lines above.
-                if (isStream)
-                    delete boundary._nUpdates;
 
-
+                
                 // - After updating - //
 
                 // Finally, apply the content to the groundable spots inside.
@@ -820,8 +737,8 @@ export const _Apply = {
                 // .... That is why we pre-refreshed them, so they have fresh info.
                 // .... So that if any grounds, they can ground immediately.
                 // .. But now is time to apply to any "still existing oldies" (excluding dead and newly grounded).
-                if (!skipContent)
-                    allChanges = _Apply.mergeChanges( allChanges, boundary.closure.applyRefresh(forceUpdate) );
+                if (bClosure)
+                    allChanges = _Apply.mergeChanges( allChanges, bClosure.applyRefresh(forceUpdate) );
 
             }
 
@@ -866,14 +783,22 @@ export const _Apply = {
      */
     pairDefs(byBoundary: SourceBoundary | ContentBoundary, preDef: MixDOMDefTarget, newAppliedDef: MixDOMDefApplied, defsByTags: Map<MixDOMDefKeyTag, MixDOMDefApplied[]>, unusedDefs: Set<MixDOMDefApplied>, toCleanUpDefs?: MixDOMDefApplied[], emptyMovers?: MixDOMTreeNode[] | null): ToApplyPair[] {
         // Typescript.
-        type DefLoopPair = [MixDOMDefTargetPseudo | MixDOMDefTarget, MixDOMDefAppliedPseudo | MixDOMDefApplied, MixDOMTreeNode | null, OuterContexts, boolean, Map<MixDOMDefKeyTag, MixDOMDefApplied[]>? ];
+        type DefLoopPair = [
+            toDef: MixDOMDefTargetPseudo | MixDOMDefTarget,
+            aDef: MixDOMDefAppliedPseudo | MixDOMDefApplied,
+            pTreeNode: MixDOMTreeNode | null,
+            toDefIsFragment: boolean,
+            /** This is used to add to a first gen. child boundary def .hasPassWithin. */
+            pBoundaryDef: MixDOMDefApplied | null,
+            subDefsByTags?: Map<MixDOMDefKeyTag, MixDOMDefApplied[]>
+        ];
         // Prepare.
         const settings = byBoundary.host.settings;
         const noValuesMode = settings.noRenderValuesMode;
         const wideArrKeys = settings.wideKeysInArrays;
-        const toApplyPairs: [MixDOMDefTarget, MixDOMDefApplied, MixDOMTreeNode, OuterContexts][] = [];
-        const sourceBoundary = byBoundary.boundaryId ? byBoundary as SourceBoundary : byBoundary.sourceBoundary;
-        let defPairs: DefLoopPair[] = [[ { childDefs: [ preDef ] as MixDOMDefTarget[] }, { childDefs: [ newAppliedDef ] as MixDOMDefApplied[] }, byBoundary.treeNode, { ...byBoundary.outerContexts }, false ]];
+        const toApplyPairs: [MixDOMDefTarget, MixDOMDefApplied, MixDOMTreeNode][] = [];
+        const sourceBoundary = byBoundary.bId ? byBoundary as SourceBoundary : byBoundary.sourceBoundary;
+        let defPairs: DefLoopPair[] = [[ { childDefs: [ preDef ] as MixDOMDefTarget[] }, { childDefs: [ newAppliedDef ] as MixDOMDefApplied[] }, byBoundary.treeNode, false, null ]];
         let defPair: DefLoopPair | undefined;
         let i = 0;
         // Start looping the target defs.
@@ -881,19 +806,10 @@ export const _Apply = {
             // Next.
             i++;
             // Parse.
-            const [toDef, aDef, pTreeNode, outerContexts, toDefIsFragment ] = defPair;
+            const [toDef, aDef, pTreeNode, toDefIsFragment ] = defPair;
             // Get scoped subDefsByTags mapping.
             // .. However, if the def refers to a true content pass within a spread, unravel back to our scope.
-            let subDefsByTags = aDef.scopeMap || defPair[5];
-            if (subDefsByTags && aDef.scopeType === "spread-pass")
-                subDefsByTags = undefined;
-
-            //
-            //
-            // <-- Dev. note. We should move CONTEXTS here.
-            // ... It's more correct. However doesn't really make a practical difference at least currently.
-            //
-            //
+            const subDefsByTags = aDef.scopeType === "spread-pass" ? undefined : aDef.scopeMap || defPair[5];
 
             // Nothing to pair.
             if (!toDef.childDefs[0]) {
@@ -903,80 +819,37 @@ export const _Apply = {
             else {
 
                 // Find correct applied defs - with null for any unfound.
-                const appliedChildDefs = _Apply.findAppliedChildDefs(aDef, toDef, subDefsByTags || defsByTags, unusedDefs, sourceBoundary, wideArrKeys);
+                const appliedChildDefs = _Apply.findAppliedDefsFor(aDef, toDef, subDefsByTags || defsByTags, unusedDefs, sourceBoundary, wideArrKeys);
                 // Set children.
                 aDef.childDefs = appliedChildDefs;
 
                 // Extra routine, remove unwanted defs.
                 for (let ii=0, toChildDef: MixDOMDefTarget; toChildDef=toDef.childDefs[ii]; ii++) {
                     // Handle by type.
-                    let skipDef: boolean | null = null;
-                    switch (toChildDef.MIX_DOM_DEF) {
-                        // If the simple content should be skipped.
-                        case "content":
-                            skipDef = noValuesMode && (noValuesMode === true ? !toChildDef.domContent : noValuesMode.indexOf(toChildDef.domContent) !== -1);
-                            break;
-                        // If is a fragment that requires children, skip it if there's no content to be delivered.
-                        // .. Also mark temp needs.
-                        case "fragment":
-                            // Premark as skippable type but not skipped.
-                            skipDef = false;
-                            // Not actually skippable (but maybe was before, so we need skipDef = false above).
-                            if (toChildDef.withContent === undefined)
-                                break;
-                            // Stream.
-                            const component = sourceBoundary?.component;
-                            if (typeof toChildDef.withContent === "function") {
-                                // Let's anyway mark our needs locally.
-                                const Stream = toChildDef.withContent() as ComponentStreamType;
-                                if (component)
-                                    component.contentAPI.needsFor(Stream, "temp", true);
-                                // Get output stream.
-                                // Prepare auto-managing.
-                                const aChildDef = aDef.childDefs[ii];
-                                const contentPass = aChildDef.StreamOut?.closure || null;
-                                const newClosure = Stream.closure || null;
-                                // Output closure has changed.
-                                // .. Note that the withContent fragments for streams are auto keyed: they won't mix with other streams.
-                                // .. So we can reliably detect change, in the rare cases that it does happen. (The deletion part is in cleanUpBoundaryDefs, too, of course.)
-                                if (contentPass !== newClosure) {
-                                    // Remove the stream link.
-                                    if (contentPass)
-                                        contentPass.streamLinks?.delete(aChildDef);
-                                    // Add new stream link.
-                                    if (newClosure) {
-                                        if (!newClosure.streamLinks)
-                                            newClosure.streamLinks = new Set([aChildDef]);
-                                        else
-                                            newClosure.streamLinks.add(aChildDef);
-                                    }
-                                }
-                                // Store for auto-managing.
-                                aChildDef.StreamOut = Stream;
-                                // Update whether should skip or not.
-                                skipDef = !Stream.closure.hasContent();
-                            }
-                            // Local passing.
-                            else {
-                                if (toChildDef.withContent)
-                                    skipDef = !sourceBoundary || !sourceBoundary.closure.hasContent();
-                                if (component)
-                                    component.contentAPI.needs("temp", true);
-                            }
-                            break;
-                    }
-                    // Update skip marks.
-                    if (skipDef !== null) {
-                        // Update mark.
+                    if (toChildDef.MIX_DOM_DEF === "content") {
                         const aDefChild = aDef.childDefs[ii];
-                        skipDef ? aDefChild.disabled = true : delete aDefChild.disabled;
+                        // If the simple content should be skipped.
+                        if (noValuesMode && (noValuesMode === true ? !toChildDef.domContent : noValuesMode.indexOf(toChildDef.domContent) !== -1))
+                            aDefChild.disabled = true
+                        else
+                            delete aDefChild.disabled;
                     }
                 }
 
+                // Update our first generation boundary ref - it's used to link up chained closures (-> for WithContent).
+                // .. Note that once we have one, we won't update it.
+                // .. This is because we feed content only into our first gen. child boundaries - not directly to the ones inside.
+                const isBoundary = toDef.MIX_DOM_DEF === "boundary";
+                const bDef = defPair[4] || isBoundary && aDef as MixDOMDefApplied;
+                // In any case, delete hasPassWithin from all boundaries for clarity (eg. maybe a child became a grand-child) tho won't make diff in practice.
+                // .. Will be updated below, if really will have content passes this time around.
+                if (isBoundary)
+                    delete aDef.hasPassWithin;
+
                 // Get tree nodes for kids.
                 // .. For pseudo elements, we only ground if there's an element defined.
-                const treeNodes = pTreeNode && toDef.MIX_DOM_DEF !== "boundary" && (toDef.MIX_DOM_DEF !== "element" || toDef.domElement) ?
-                    _Apply.assignTreeNodesForChildren(appliedChildDefs, pTreeNode, toDefIsFragment, sourceBoundary, emptyMovers) : [];
+                const treeNodes = pTreeNode && !isBoundary && (toDef.MIX_DOM_DEF !== "element" || toDef.domElement) ?
+                    _Apply.assignTreeNodesFor(appliedChildDefs, pTreeNode, toDefIsFragment, sourceBoundary, emptyMovers) : [];
 
                 // Loop each kid to add to loop, and collect extra clean up.
                 const newDefPairs: DefLoopPair[] = [];
@@ -991,10 +864,14 @@ export const _Apply = {
                         if (toCleanUpDefs)
                             toCleanUpDefs.push(aChildDef);
                     }
-                    // Contexts.
-                    const myOuterContexts = toChildDef.contexts && toChildDef.MIX_DOM_DEF === "contexts" ? _Apply.mergeOuterContexts(outerContexts, toChildDef.contexts) : outerContexts;
+                    // Add to our content pass optimization detection.
+                    // .. It's so convenient to do the "whether a first gen. boundary will have content passes" -check in here (though costing an array slot).
+                    // .. An alternative would be in contentClosure.preRefresh(), but then would have to go through all the defs again.
+                    if (bDef && toChildDef.MIX_DOM_DEF === "pass")
+                        bDef.hasPassWithin = true;
+                    
                     // Add to loop.
-                    const newPair: DefLoopPair = [toChildDef, aChildDef, tNode, myOuterContexts, toChildDef.MIX_DOM_DEF === "fragment" ];
+                    const newPair: DefLoopPair = [toChildDef, aChildDef, tNode, toChildDef.MIX_DOM_DEF === "fragment", bDef || toChildDef.MIX_DOM_DEF === "boundary" && aChildDef || null ];
                     newDefPairs.push(newPair);
                     // .. Handle spread content passing speciality.
                     if (subDefsByTags)
@@ -1007,7 +884,7 @@ export const _Apply = {
 
             // Add for phase II loop - unless was a pseudo-def or skipped.
             if (pTreeNode && toDef.MIX_DOM_DEF && aDef.MIX_DOM_DEF)
-                toApplyPairs.push([toDef, aDef, pTreeNode, outerContexts]);
+                toApplyPairs.push([toDef, aDef, pTreeNode]);
 
         }
         // Return ready to apply pairs.
@@ -1050,7 +927,7 @@ export const _Apply = {
       *        .. However, for wide matching the order is non-important, but it's still consistent and reasonable: it's the tree-order for each tag.
       *    - Note. The logical outcome for the function is as described above, but it's instead organized below into a more flowing form.
       */
-    findAppliedChildDefs(parentAppliedDef: MixDOMDefApplied | MixDOMDefAppliedPseudo | null, parentDef: MixDOMDefTarget | MixDOMDefTargetPseudo, defsByTags: Map<MixDOMDefKeyTag, MixDOMDefApplied[]>, unusedDefs: Set<MixDOMDefApplied>, sourceBoundary?: SourceBoundary | null, wideArrKeys?: boolean): MixDOMDefApplied[] {
+    findAppliedDefsFor(parentAppliedDef: MixDOMDefApplied | MixDOMDefAppliedPseudo | null, parentDef: MixDOMDefTarget | MixDOMDefTargetPseudo, defsByTags: Map<MixDOMDefKeyTag, MixDOMDefApplied[]>, unusedDefs: Set<MixDOMDefApplied>, sourceBoundary?: SourceBoundary | null, wideArrKeys?: boolean): MixDOMDefApplied[] {
         // Handle trivial special case - no children asked for.
         let nChildDefs = parentDef.childDefs.length;
         if (!nChildDefs)
@@ -1058,7 +935,7 @@ export const _Apply = {
         // Not compatible - shouldn't find matches.
         const allowWide = wideArrKeys || !parentDef.isArray;
         if (!wideArrKeys && (parentDef.isArray != (parentAppliedDef && parentAppliedDef.isArray)))
-            return parentDef.childDefs.map(def => _Defs.newAppliedDefBy(def, sourceBoundary && sourceBoundary.closure || null));
+            return parentDef.childDefs.map(def => _Defs.newAppliedDef(def, sourceBoundary && sourceBoundary.closure || null));
 
         // Loop children and collect defs.
         const siblingDefs = parentAppliedDef && parentAppliedDef.childDefs || null;
@@ -1069,7 +946,7 @@ export const _Apply = {
             const childDef = parentDef.childDefs[i];
             const hasKey = childDef.key != null;
             const defType = childDef.MIX_DOM_DEF;
-            const sTag = childDef.getContentStream || _Apply.SEARCH_TAG_BY_TYPE[defType] || childDef.tag;
+            const sTag = childDef.getStream || _Apply.SEARCH_TAG_BY_TYPE[defType] || childDef.tag;
             /** Whether did move for sure. If not sure, don't put to true. */
             let wideMove = false;
             let aDef: MixDOMDefApplied | null = null;
@@ -1080,7 +957,7 @@ export const _Apply = {
                 for (const def of siblingDefs) {
                     // Prepare.
                     // Not matching by: 1. key vs. non-key, 2. wrong tag, 3. already used.
-                    if ((hasKey ? def.key !== childDef.key : def.key != null) || sTag !== (def.getContentStream || _Apply.SEARCH_TAG_BY_TYPE[def.MIX_DOM_DEF] || def.tag) || !unusedDefs.has(def))
+                    if ((hasKey ? def.key !== childDef.key : def.key != null) || sTag !== (def.getStream || _Apply.SEARCH_TAG_BY_TYPE[def.MIX_DOM_DEF] || def.tag) || !unusedDefs.has(def))
                         continue;
                     // Not matching by constant props.
                     if (defType === "boundary" && def.treeNode?.boundary?.component?.constantProps &&
@@ -1120,7 +997,7 @@ export const _Apply = {
             }
             // Create.
             if (!aDef)
-                aDef = _Defs.newAppliedDefBy(childDef, sourceBoundary && sourceBoundary.closure || null);
+                aDef = _Defs.newAppliedDef(childDef, sourceBoundary && sourceBoundary.closure || null);
             // Mark whether was moved or just updated.
             else
                 aDef.action =
@@ -1154,7 +1031,7 @@ export const _Apply = {
      *      * This makes it easy for us to know that whenever there's a child, it should have a node. So we can safely create new ones for all in the list (if cannot reuse).
      *      * Of course, fragments are not actually worth tree nodes, but we use them as placeholders in the flow. (But because of above, we know there will be something to replace them.)
      */
-    assignTreeNodesForChildren(aChilds: MixDOMDefApplied[], workingTreeNode: MixDOMTreeNode, nodeIsFragment?: boolean, sourceBoundary?: SourceBoundary | null, emptyMovers?: MixDOMTreeNode[] | null): (MixDOMTreeNode | null)[] {
+    assignTreeNodesFor(aChilds: MixDOMDefApplied[], workingTreeNode: MixDOMTreeNode, nodeIsFragment?: boolean, sourceBoundary?: SourceBoundary | null, emptyMovers?: MixDOMTreeNode[] | null): (MixDOMTreeNode | null)[] {
 
         // A preassumption of using this function is that it's called flowing down the tree structure.
         // .. Due to this, we will always clear the kids of the workingTreeNode, and reassign them afterwards below.
@@ -1297,9 +1174,9 @@ export const _Apply = {
         const toCleanUp: MixDOMTreeNode[] = [];
         const emptyMovers: MixDOMTreeNode[] = [];
         // Prepare loop.
-        type DefLoopPair = [MixDOMDefTarget, MixDOMDefApplied, MixDOMTreeNode | null, OuterContexts, boolean ];
+        type DefLoopPair = [MixDOMDefTarget, MixDOMDefApplied, MixDOMTreeNode | null, boolean ];
         const toApplyPairs: ToApplyPair[] = [];
-        let defPairs: DefLoopPair[] = [[ targetDef, appliedDef, contentBoundary.treeNode, { ...contentBoundary.outerContexts }, false ]];
+        let defPairs: DefLoopPair[] = [[ targetDef, appliedDef, contentBoundary.treeNode, false ]];
         let defPair: DefLoopPair | undefined;
         let i = 0;
         // Start looping the target defs.
@@ -1307,13 +1184,13 @@ export const _Apply = {
             // Next.
             i++;
             // Parse.
-            const [toDef, aDefNew, pTreeNode, outerContexts, toDefIsFragment ] = defPair;
+            const [toDef, aDefNew, pTreeNode, toDefIsFragment ] = defPair;
             // Explore, if has children and is not a boundary def (in that case, our grounding branch ends to it).
             if (aDefNew.childDefs[0]) {
                 // Get tree nodes for kids.
                 // .. For <MixDOM.Element>'s, we only ground if there's an element defined.
                 const treeNodes = pTreeNode && toDef.MIX_DOM_DEF !== "boundary" && (toDef.MIX_DOM_DEF !== "element" || toDef.domElement) ?
-                    _Apply.assignTreeNodesForChildren(aDefNew.childDefs, pTreeNode, toDefIsFragment, sourceBoundary, emptyMovers) : [];
+                    _Apply.assignTreeNodesFor(aDefNew.childDefs, pTreeNode, toDefIsFragment, sourceBoundary, emptyMovers) : [];
                 // After clean up.
                 let iKid = 0;
                 const newDefPairs: DefLoopPair[] = [];
@@ -1326,11 +1203,8 @@ export const _Apply = {
                         toCleanUp.push(aChildDef.treeNode);
                         aChildDef.treeNode.sourceBoundary = null;
                     }
-                    // Contexts.
-                    const toChildDef = toDef.childDefs[iKid];
-                    const myOuterContexts = toChildDef.contexts && toChildDef.MIX_DOM_DEF === "contexts" ? _Apply.mergeOuterContexts(outerContexts, toChildDef.contexts) : outerContexts;
                     // Add to loop.
-                    newDefPairs.push([toChildDef, aChildDef as MixDOMDefApplied, tNode, myOuterContexts, aChildDef.MIX_DOM_DEF === "fragment" ]);
+                    newDefPairs.push([toDef.childDefs[iKid], aChildDef as MixDOMDefApplied, tNode, aChildDef.MIX_DOM_DEF === "fragment" ]);
                     // Next.
                     iKid++;
                 }
@@ -1340,7 +1214,7 @@ export const _Apply = {
             }
             // Add for phase II loop.
             if (pTreeNode && !aDefNew.disabled)
-                toApplyPairs.push([toDef, aDefNew, pTreeNode, outerContexts]);
+                toApplyPairs.push([toDef, aDefNew, pTreeNode]);
         }
         // Return pairs.
         return [ toApplyPairs, toCleanUp, emptyMovers ];
@@ -1363,7 +1237,7 @@ export const _Apply = {
             // Add to the base collection.
             unusedDefs.add(searchDef);
             // Add to defsByTags.
-            const sTag = searchDef.getContentStream || _Apply.SEARCH_TAG_BY_TYPE[searchDef.MIX_DOM_DEF] || searchDef.tag;
+            const sTag = searchDef.getStream || _Apply.SEARCH_TAG_BY_TYPE[searchDef.MIX_DOM_DEF] || searchDef.tag;
             const byTags = defsByTags.get(sTag);
             byTags ? byTags.push(searchDef) : defsByTags.set(sTag, [ searchDef ]);
             // Isolate if has scope type - eg. spread and content pass copies within spread.
@@ -1402,11 +1276,13 @@ export const _Apply = {
 
     // - Clean up routines - //
 
-    cleanUpBoundaryDefs(unusedDefs: Iterable<MixDOMDefApplied>, devLog: boolean = false, nullifyDefs: boolean = true, destroyAllDOM: boolean = true): MixDOMChangeInfos {
-        // - DEVLOG - //
-        // Log.
-        if (devLog)
-            console.log("___Apply.cleanUpBoundaryDefs: Dev-log: Clean up unused defs: ", [...unusedDefs]);
+    cleanUpDefs(unusedDefs: Iterable<MixDOMDefApplied>, nullifyDefs: boolean = true, destroyAllDOM: boolean = true): MixDOMChangeInfos {
+        
+        // // - DEVLOG - //
+        // // Log.
+        // if (devLog)
+        //     console.log("___Apply.cleanUpDefs: Dev-log: Clean up unused defs: ", [...unusedDefs]);
+
         // Loop each and destroy accordingly.
         let allChanges: MixDOMChangeInfos = [ [], [] ];
         for (const aDef of unusedDefs) {
@@ -1414,22 +1290,6 @@ export const _Apply = {
             const treeNode = aDef.treeNode;
             if (!treeNode)
                 continue;
-
-            // // Detach tunnels - except for boundaries it's done in destroyBoundary.
-            // // .. No need to do this. Tunnels are only meaningful for contextual boundaries.
-            // if (aDef.MIX_DOM_DEF !== "boundary" && aDef.attachedContexts) {
-            //     const tunnels = aDef.attachedContexts;
-            //     for (const name in tunnels) {
-            //         const tunnel = tunnels[name];
-            //         if (tunnel)
-            //             tunnel.onRemoveFrom(treeNode);
-            //     }
-            // }
-
-            // // Detach signals.
-            // // .. No need to do this either.
-            // if (aDef.MIX_DOM_DEF !== "boundary" && aDef.attachedSignals) {
-            // }
 
             // Remove.
             switch(aDef.MIX_DOM_DEF) {
@@ -1453,13 +1313,8 @@ export const _Apply = {
 
                 case "pass":
                     // Content pass - by parent chain or streaming.
-                    if (aDef.contentPass) {
-                        // Unground.
+                    if (aDef.contentPass)
                         allChanges = _Apply.mergeChanges(allChanges, aDef.contentPass.contentUngrounded(aDef));
-                        // Remove the stream link for streams.
-                        if (aDef.getContentStream)
-                            aDef.contentPass.streamLinks?.delete(aDef);
-                    }
 
                 case "host": {
                     const host = aDef.host;
@@ -1469,40 +1324,13 @@ export const _Apply = {
                         treeNode.children = [];
                         // Render.
                         allChanges[0].push( { treeNode: treeNode as MixDOMTreeNodeHost, move: true });
-                        // Clear from host linking.
-                        const sourceHost = host.sourceHost;
-                        if (sourceHost) {
-                            // Remove from ghosts.
-                            if (sourceHost.ghostHosts) {
-                                sourceHost.ghostHosts.delete(host);
-                                if (!sourceHost.ghostHosts.size)
-                                    delete sourceHost.ghostHosts;
-                            }
-                            // Delete source host ref, too.
-                            delete host.sourceHost;
-                        }
+                        // Clear from duplicatable hosts, and from contextual linking.
+                        host.shadowAPI.hosts.delete(host);
+                        const cAPI = host.contextAPI;
+                        for (const ctxName in cAPI.contexts)
+                            cAPI.contexts[ctxName]?.contextAPIs.delete(cAPI);
                     }
                 }
-                case "contexts":
-                    if (aDef.contexts) {
-                        for (const name in aDef.contexts) {
-                            // Get.
-                            const aCtx = aDef.contexts[name];
-                            if (!aCtx)
-                                continue;
-                            // Call remove.
-                            if (aCtx.onRemoveFrom)
-                                aCtx.onRemoveFrom(treeNode as MixDOMTreeNodeContexts, name);
-                            // Do the removing - either one name or most often the whole entry.
-                            const tNames = aCtx.inTree.get(treeNode as MixDOMTreeNodeContexts);
-                            tNames && tNames.size > 1 ? tNames.delete(name) : aCtx.inTree.delete(treeNode as MixDOMTreeNodeContexts);
-                        }
-                    }
-
-                case "fragment":
-                    // Remove the stream link for contextual streams.
-                    if (aDef.StreamOut && typeof aDef.withContent === "function")
-                        aDef.StreamOut.closure.streamLinks?.delete(aDef);
 
                 default:
                     if (aDef.attachedRefs && aDef.MIX_DOM_DEF)
@@ -1530,7 +1358,7 @@ export const _Apply = {
         // Prepare.
         let allChanges: MixDOMChangeInfos = [ [], [] ];
 
-        // We destroy each in tree order - using _Apply.destroyBoundary and _Apply.cleanUpBoundaryDefs as a recursive pair.
+        // We destroy each in tree order - using _Apply.destroyBoundary and _Apply.cleanUpDefs as a recursive pair.
         // .. Note. In a way, it'd be more natural to do it in reverse tree order.
         // .. However, we want to do the ref unmounting in tree order, in order to allow "salvaging" to work more effectively.
         // .... And we don't want component.willUnmount to run in reverse tree order while ref.onDomUnmount runs in tree order.
@@ -1542,7 +1370,7 @@ export const _Apply = {
         if (boundary.isMounted === null)
             return allChanges;
         // Source boundary.
-        const sBoundary = boundary.boundaryId ? boundary : null;
+        const sBoundary = boundary.bId ? boundary : null;
         if (sBoundary) {
             const component = sBoundary.component;
             const Comp = component.constructor as ComponentType | ComponentShadowType | ComponentStreamType;
@@ -1550,35 +1378,24 @@ export const _Apply = {
             if (component.signals.willUnmount)
                 callListeners(component.signals.willUnmount);
             // Detach attached refs.
-            if (sBoundary._outerDef.attachedRefs) {
-                for (const attachedRef of sBoundary._outerDef.attachedRefs)
+            const outerDef = sBoundary._outerDef;
+            if (outerDef.attachedRefs) {
+                for (const attachedRef of outerDef.attachedRefs)
                     Ref.willDetachFrom(attachedRef, sBoundary.treeNode);
             }
-            // Host listeners.
-            if (component.hostListeners) {
-                for (const [name, callback] of component.hostListeners)
-                    sBoundary.host.unlistenTo(name as any, callback);
-                delete component.hostListeners;
+            // Remove from closure chaining.
+            sBoundary.sourceBoundary?.closure.chainedClosures?.delete(sBoundary.closure);
+            // Remove contextual connections.
+            const cAPI = component.contextAPI;
+            if (cAPI) {
+                // Clear from direct connections to contexts.
+                for (const ctxName in cAPI.contexts)
+                    cAPI.contexts[ctxName]?.contextAPIs.delete(cAPI);
+                cAPI.contexts = {};
+                // Clear from indirect through host.
+                sBoundary.host.contextComponents.delete(component as ComponentWith);
             }
-            if (component.hostDataListeners) {
-                for (const [callback] of component.hostDataListeners)
-                    sBoundary.host.unlistenToData(callback);
-                delete component.hostDataListeners;
-            }
-            // Contextual.
-            const cApi = component.contextAPI;
-            if (cApi) {
-                // Detach tunnels - other than cascading.
-                const namedCtxs = cApi.getContexts();
-                for (const name in namedCtxs) {
-                    const ctx = namedCtxs[name];
-                    // We don't care for didChange flags, but just want to disentagle from contexts and call the onContextsChange callback.
-                    if (ctx)
-                        _Apply.helpUpdateContext(cApi, name, null, ctx);
-                }
-                // Note that streams (as well as any passes) are destroyed below.
-            }
-            // Remove from doubles bookkeeping and clear their signals.
+            // Remove from shadow bookkeeping and clear their signals.
             if (Comp.api) {
                 Comp.api.components.delete(component as any); // Some typing thing here. Things should have StreamProps.
                 if (Comp.api.signals)
@@ -1590,13 +1407,17 @@ export const _Apply = {
                 // .. The other changes will be bound to a host listener and run after, this includes triggering any interested ones.
                 allChanges = _Apply.mergeChanges(allChanges, (Comp as ComponentStreamType).removeSource(component as ComponentStream));
 
-            // Clear back links from stream needs.
-            // .. Note that we don't need to clear the parent-child passing passing needs, as the closure dies with us.
-            // .. Note also that while destruction happens our defs are fed to the cleanUpBoundaryDefs procedure (below) that handles "pass" type and fragments withContent.
-            if (component.contentAPI.streamNeeds) {
-                for (const Stream of [...component.contentAPI.streamNeeds.keys()])
-                    Stream.contentLinks.delete(component.contentAPI);
-                component.contentAPI.streamNeeds.clear();
+            // Remove from content closure tracking of the parent boundary that rendered us.
+            if (outerDef.tag["_WithContent"]) {
+                // Parental vs. stream.
+                const withDef = outerDef.tag["_WithContent"] as MixDOMDefTarget;
+                const sClosure = withDef.getStream ? withDef.getStream().closure : sBoundary.sourceBoundary?.closure;
+                // Remove from bookkeeping.
+                if (sClosure?.withContents) {
+                    sClosure.withContents.delete(sBoundary);
+                    if (!sClosure.withContents.size)
+                        delete sClosure.withContents;
+                }
             }
 
             // Clear signals. We just reset them.
@@ -1614,11 +1435,11 @@ export const _Apply = {
         if (destroyAllDOM)
             allChanges[0] = allChanges[0].concat(_Find.rootDOMTreeNodes(boundary.treeNode, true).map(treeNode => ({ treeNode: treeNode as (MixDOMTreeNodeDOM | MixDOMTreeNodeBoundary), remove: true } as MixDOMRenderInfo)));
 
-        // Get all defs and send to cleanUpBoundaryDefs - we also pass the nullifyDefs down, but do not pass destroyAllDOM as we already captured the root nodes above recursively.
+        // Get all defs and send to cleanUpDefs - we also pass the nullifyDefs down, but do not pass destroyAllDOM as we already captured the root nodes above recursively.
         // .. Note that if our inner def contains boundaries within (or is a boundary def itself), it will call here recursively down the structure (with destroyAllDOM set to false).
         if (boundary._innerDef)
             allChanges = _Apply.mergeChanges(allChanges,
-                _Apply.cleanUpBoundaryDefs(_Find.allDefsIn(boundary._innerDef), boundary.host.settings.devLogCleanUp, nullifyDefs, false)
+                _Apply.cleanUpDefs(_Find.allDefsIn(boundary._innerDef), nullifyDefs, false)
             );
 
         // Remove from updates, if was there.
@@ -1631,93 +1452,6 @@ export const _Apply = {
     },
 
 
-    // - Handle attached helpers - //
-
-    handleAttachedContexts(aDef: MixDOMDefApplied, toDef: MixDOMDefTarget) {
-        // Nothing to do.
-        const toContexts = toDef.attachedContexts;
-        if (!aDef.treeNode || !toContexts && !aDef.attachedContexts)
-            return;
-        // Prepare.
-        const treeNode: MixDOMTreeNode = aDef.treeNode;
-        const cBoundary = treeNode.type === "boundary" && treeNode.boundary || null;
-        const fromTunnels = aDef.attachedContexts || {};
-        // Update.
-        aDef.attachedContexts = toContexts;
-        // Bookkeeping and calling.
-        // .. This feature is only for boundaries with a contextAPI component.
-        const cApi = cBoundary && cBoundary.component.contextAPI;
-        if (cApi) {
-            // Prepare.
-            const overridden = cApi.overriddenContexts || {};
-            const toTunnels = toContexts || {};
-            const changed = new Set( [ ...Object.keys(fromTunnels), ...Object.keys(toTunnels) ])
-            let didChange: MixDOMContextRefresh = 0;
-            let changedNames: string[] | null = null;
-            // Loop.
-            for (const name of changed) {
-                // If overridden, no change - we are at a less important level.
-                if (overridden[name] !== undefined)
-                    continue;
-                // Not changed.
-                const oldTunnel = fromTunnels[name] === undefined ? cBoundary.outerContexts[name] : fromTunnels[name];
-                const newTunnel = toTunnels[name];
-                if (newTunnel === oldTunnel)
-                    continue;
-                // Did change.
-                didChange |= MixDOMContextRefresh.Otherwise;
-                didChange |= _Apply.helpUpdateContext(cApi, name, newTunnel, oldTunnel);
-                if (!changedNames)
-                    changedNames = [];
-                changedNames.push(name);
-            }
-            // Mark for contextual changes.
-            if (changedNames && HostServices.shouldUpdateContextually(didChange)) {
-                const pUpdates = cBoundary._preUpdates;
-                if (!pUpdates)
-                    cBoundary._preUpdates = { contextual: changedNames };
-                else
-                    pUpdates.contextual = pUpdates.contextual ? [... new Set([...pUpdates.contextual, ...changedNames]) ] : changedNames;
-            }
-        }
-    },
-
-
-    // - Context helpers - //
-
-    helpUpdateContext(cApi: ContextAPI, ctxName: string, newContext: Context | null, oldContext: Context | null): MixDOMContextRefresh {
-        // Data interests.
-        let changed: MixDOMContextRefresh = 0;
-        if ([...cApi.dataListeners].some(([, [needs]]) => needs.some(need => need === ctxName || need.startsWith(ctxName + ".")))) {
-            if (oldContext)
-                oldContext.services.onDisInterest("data", cApi.component, ctxName);
-            if (newContext)
-                newContext.services.onInterest("data", cApi.component, ctxName)
-            changed |= MixDOMContextRefresh.Data;
-        }
-        // Action interests.
-        if (cApi.signalsBy[ctxName]) {
-            if (oldContext)
-                oldContext.services.onDisInterest("signals", cApi.component, ctxName);
-            if (newContext)
-                newContext.services.onInterest("signals", cApi.component, ctxName);
-            changed |= MixDOMContextRefresh.Actions;
-        }
-        // Return changed.
-        return changed;
-    },
-
-    mergeOuterContexts(outerContexts: OuterContexts, modContexts: OuterContexts): OuterContexts {
-        // Take copy and add / remove each.
-        const newContexts = { ...outerContexts };
-        for (const name in modContexts) {
-            const ctx = modContexts[name];
-            ctx ? newContexts[name] = ctx : delete newContexts[name];
-        }
-        // Return pruned.
-        return newContexts;
-    },
-
 
     // - Update boundaries helpers - //
 
@@ -1726,7 +1460,8 @@ export const _Apply = {
      *    .. Note that any inner siblings will have the same key chain - we inner sort them by index.
      * 2. And then sort the boundaryId chains according to .startsWith() logic.
      * 3. Finally we reassign the updates - unraveling the nested order of same keys.
-     * - Note. This implicitly supports sorting boundaries from different hosts, as the id's are in the form of: "h-number-b-number", eg. "h-2-b-47".
+     * - Note. This implicitly supports sorting boundaries from different hosts, as the id's are in the form of: "h-number:b-number", eg. "h-0:b-47".
+     * - So accordingly we might have a parent chain id like this: "h-0:b:0>h-0:b-15" which would mean has two parents: root boundary (b:0) > boundary (b:15) > self.
      */
     sortBoundaries(boundaries: Iterable<SourceBoundary>): void {
 
@@ -1734,12 +1469,12 @@ export const _Apply = {
         const keysMap: Map<string, SourceBoundary[]> = new Map();
         for (const boundary of boundaries) {
             // Prepare.
-            let key = boundary.boundaryId;
+            let key = boundary.bId;
             // Go up the parent chain.
             // .. If is a content boundary, just add an empty splitter.
             let pBoundary: MixDOMBoundary | null = boundary.parentBoundary;
             while (pBoundary) {
-                key = (pBoundary.boundaryId || "") + ">" + key;
+                key = (pBoundary.bId || "") + ">" + key;
                 pBoundary = pBoundary.parentBoundary;
             }
             // Add amongst cousins - optimization to get better tree order even in not-so-important cases.

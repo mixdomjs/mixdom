@@ -2,24 +2,21 @@
 
 // - Imports - //
 
-import { _Defs } from "../static/_Defs";
-import { _Apply } from "../static/_Apply";
 import {
     MixDOMChangeInfos,
     MixDOMContentEnvelope,
     MixDOMDefTarget,
-    MixDOMRenderOutput,
     MixDOMPreComponentOnlyProps,
 } from "../static/_Types";
+import { _Defs } from "../static/_Defs";
+import { _Apply } from "../static/_Apply";
 import { SourceBoundary } from "./Boundary";
 import { ContentClosure } from "./ContentClosure";
 import { Component, ComponentType } from "./Component";
-import { PseudoFragment } from "./ComponentPseudos";
-import { ContentAPI } from "./ContentAPI";
-import { SignalManFlags } from "./SignalMan";
+import { MixDOMContent } from "../MixDOM";
 
 
-// - MAIN IDEA - //
+// - MAIN IDEA (v3.1) - //
 // 
 // I - BASICS:
 //  - We have one kind of stream: ComponentStream.
@@ -27,20 +24,12 @@ import { SignalManFlags } from "./SignalMan";
 //  - The basic idea is that there's an INPUT SOURCE and STREAM OUTPUT parts.
 //      * The input is an instance of the ComponentStream class, while output is handled by the static side: ComponentStreamType.
 //      * As there can be many instances of a stream, there is mixing on the static class side to decide which one is the active source.
-//      * The static output side can be used just like with MixDOM shortcut: Stream.Content, Stream.ContentCopy, Stream.copyContent(...) and Stream.withContent(...)
+//      * The static output side can be used just like with MixDOM shortcut: MyStream.Content, MyStream.ContentCopy, MyStream.copyContent(...) and <MyStream.WithContent>...</MyStream.WithContent>
 //  - To account for situations where you might have access to a stream but it might be empty, there's a MixDOM.EmptyStream pseudo class.
 //      * It actually extends PseudoEmpty but has typing of ComponentStreamType. You can use its public members and methods in the flow, they'll just return null.
-//
-// II - CHILDREN NEEDS:
-//  - Finally we also need to do bookkeeping of children needs so that can use withContent as well as specifically define needs for a boundary.
-//      * Like always, this is done via contentAPI, but with the getFor(Stream, ...) method.
-//  - When you have stable access to the stream, it's relatively straightforward: just use contentApi.getFor(MyStream) to get the children or .needsFor to mark the needs.
-//      * As normally, using the getFor method also by default marks the "temp" needs to the contentAPI's bookkeeping.
-//  - If you don't have stable access, you should use an effect and run it when the stream has changed (eg. in state.PopupStream).
-//      * The effect's mount part should set the needs, eg. `contentAPI.needsFor(MyStream, true)`, and the unmount part unset them `.needsFor(MyStream, null)`.
-//      * If you have EmptyStreams in the flow you can use `MyStream.isStream()` method to tell which is a real stream. The ContentAPI methods also use it internally.
-//  - Note that normally you never need to assign specific needs.
-//      * You can just insert the content by `MyStream.Content`, use a wrapper that auto-sets needs: `MyStream.withContent(...)` or to handle each kid with auto needs `contentAPI.getFor(MyStream)`.
+//  - Note that as of v3.1, there's no more need to keep meticulous bookkeeping of children needs.
+//      * Instead, each Stream class provides a component for the WithContent feature: `<MyStream.WithContent>...</MyStream.WithContent>`.
+//      * It simply renders `null` if the stream has no active content (= no source, or source rendered `null`), or otherwise renders the given content.
 
 
 // - Typing - //
@@ -59,7 +48,7 @@ export interface ComponentStream extends Component<{ props: ComponentStreamProps
     /** Used internally. Whether can refresh the source or not. If it's not attached, cannot. */
     canRefresh(): boolean;
     /** Used internally in relation to the content passing updating process. */
-    preRefresh(newEnvelope: MixDOMContentEnvelope | null, skipInterests?: boolean): Set<SourceBoundary> | null;
+    preRefresh(newEnvelope: MixDOMContentEnvelope | null): Set<SourceBoundary> | null;
     /** Used internally in relation to the content passing updating process. */
     applyRefresh(forceUpdate?: boolean): MixDOMChangeInfos;
     /** To refresh sub mixing - mainly the importance prop. */
@@ -79,12 +68,19 @@ export interface ComponentStreamType extends ComponentType<{ props: ComponentStr
     Content: MixDOMDefTarget | null;
     ContentCopy: MixDOMDefTarget | null;
     copyContent: (key?: any) => MixDOMDefTarget | null;
-    withContent: (...contents: MixDOMRenderOutput[]) => MixDOMDefTarget | null;
+    /** A custom component (func) that can be used for stream conditional inserting.
+     * - For example: `<MyStream.WithContent><div class="popup-container">{MyStream.Content}</div></MyStream.WithContent>`
+     *      * Results in `<div class="popup-container">...</div>`, where ... is the actual content passed (by stream source).
+     *      * However, if there was no actual content to pass, then results in `null`.
+     * - This is very typically used for adding some wired elements to a popup stream, like in the above example.
+     */
+    WithContent: ComponentType<{props: { hasContent?: boolean; }; }> & {
+        /** Should contain the content pass object. For parental passing it's the MixDOM.Content object. For streams their Content pass object with its getStream() method. */
+        _WithContent: MixDOMDefTarget;
+    };
     isStream(): boolean;
 
     // Internal members.
-    /** Contains the links back to the content api's - used for collecting interested boundaries (base on needs) for auto-updating them. */
-    contentLinks: Set<ContentAPI>;
     closure: ContentClosure;
     source: ComponentStream | null;
     sources: Set<ComponentStream>;
@@ -114,9 +110,9 @@ export const createStream = (): ComponentStreamType =>
             return _Stream.source === this;
         }
 
-        public preRefresh(newEnvelope: MixDOMContentEnvelope | null, skipInterests?: boolean): Set<SourceBoundary> | null {
+        public preRefresh(newEnvelope: MixDOMContentEnvelope | null): Set<SourceBoundary> | null {
             // If we are the active source - pass the preRefresh (part 1/2) from closure to closure.
-            return _Stream.source === this && _Stream.closure.preRefresh(newEnvelope, this, skipInterests) || null;
+            return _Stream.source === this && _Stream.closure.preRefresh(newEnvelope, this) || null;
         }
 
         public applyRefresh(forceUpdate: boolean = false): MixDOMChangeInfos {
@@ -146,16 +142,20 @@ export const createStream = (): ComponentStreamType =>
         public static closure: ContentClosure = new ContentClosure();
         public static source: ComponentStream | null = null;
         public static sources: Set<ComponentStream> = new Set();
-        public static contentLinks: Set<ContentAPI> = new Set();
 
 
         // - Static external usage - //
 
-        public static Content: MixDOMDefTarget | null = { ..._Defs.newContentPassDef(_Stream), contentPass: null, getContentStream: () => _Stream };
-        public static ContentCopy: MixDOMDefTarget | null = { ..._Defs.newContentPassDef(_Stream, true), contentPass: null, getContentStream: () => _Stream };
-        public static copyContent = (key?: any): MixDOMDefTarget | null => ({ ..._Defs.newContentPassDef(key ?? _Stream, true), contentPass: null, getContentStream: () => _Stream });
-        public static withContent = (...contents: MixDOMRenderOutput[]): MixDOMDefTarget | null =>
-            _Defs.newDef(PseudoFragment, { withContent: () => _Stream, _key: _Stream }, ...contents);
+        public static Content: MixDOMDefTarget | null = { ..._Defs.newContentPassDef(_Stream), contentPass: null, getStream: () => _Stream };
+        public static ContentCopy: MixDOMDefTarget | null = { ..._Defs.newContentPassDef(_Stream, true), contentPass: null, getStream: () => _Stream };
+        public static copyContent = (key?: any): MixDOMDefTarget | null => ({ ..._Defs.newContentPassDef(key ?? _Stream, true), contentPass: null, getStream: () => _Stream });
+        public static WithContent = class WithContent extends Component<{ props: { hasContent?: boolean; }; }> {
+            public static _WithContent = _Stream.Content as MixDOMDefTarget;
+            public render() {
+                return (this.props.hasContent != null ? this.props.hasContent : _Stream.source?.boundary.closure.hasContent()) ? MixDOMContent : null;
+            }
+        };
+        
         public static isStream(): boolean { return true; }
 
 
@@ -177,8 +177,7 @@ export const createStream = (): ComponentStreamType =>
                 return null;
             // Collect interested. We won't mark anything, just collect them.
             let infos: MixDOMChangeInfos | null = null;
-            // let interested: SourceBoundary[] | null = _Stream.contentLinks.size ? [..._Stream.contentLinks].map(cApi => cApi.component.boundary) : null;
-            let interested: Set<SourceBoundary> | null = _Stream.closure.collectInterested(stream);
+            const interested: Set<SourceBoundary> | null = _Stream.closure.collectInterested(stream);
             // Apply null to the envelope to destroy the content.
             infos = _Stream.closure.applyEnvelope(null);
             // Nullify the references, to mark that we have no active source now.
@@ -190,18 +189,18 @@ export const createStream = (): ComponentStreamType =>
             // .... 1. Try having one source and remove it (-> null). If the inserter has withContent, then uses the interested ones, while refreshStream wouldn't run (= already removed source).
             // .... 2. Try having two sources and remove the active one (-> refresh). The refreshStream should run to update the content.
             if (withSourceRefresh || interested)
-                stream.boundary.host.listenTo("onRender", () => {
+                stream.boundary.host.afterRefreshCall(() => {
                     // Before we refresh the stream connections, let's premark all our interested boundaries to have no stream content (childDefs: []).
                     // .. If the refreshing finds a new stream, it will update the content then again, before the actual update is run.
                     if (interested) {
                         const map = new Map([[stream, []] as [ ComponentStream, MixDOMDefTarget[]]]);
                         for (const b of interested)
-                            b.host.services.absorbUpdates(b, { streamed: map });
+                            b.host.services.absorbUpdates(b, { force: true });
                     }
                     // Refresh the stream.
                     if (withSourceRefresh)
                         _Stream.refreshStream();
-                }, null, SignalManFlags.OneShot);
+                }, true); // On the render side.
             // Return infos.
             return infos;
         }
@@ -296,9 +295,9 @@ export const createStream = (): ComponentStreamType =>
                 closure.sourceBoundary = stream && stream.boundary;
                 // Did get removal infos.
                 if (oldInfos[0][0] || oldInfos[1][0]) {
-                    if (addNew)
-                        oldHost.listenTo("onUpdate", addNew, null, SignalManFlags.OneShot);
                     oldHost.services.absorbChanges(oldInfos[0], oldInfos[1], forceRenderTimeout);
+                    if (addNew)
+                        oldHost.afterRefreshCall(addNew, false);
                 }
                 // Just add, if even that.
                 else if (addNew)
@@ -312,11 +311,34 @@ export const createStream = (): ComponentStreamType =>
     }
 
 
-
 // - Backup notes - //
 // 
 // 
-// - OLD MAIN IDEA (with ContextStreams) - //
+// - OLD MAIN IDEA (v3.0) - //
+// 
+// I - BASICS:
+//  - We have one kind of stream: ComponentStream.
+//      * It can be used directly or shared via context data (and then using onData() -> setState() flow).
+//  - The basic idea is that there's an INPUT SOURCE and STREAM OUTPUT parts.
+//      * The input is an instance of the ComponentStream class, while output is handled by the static side: ComponentStreamType.
+//      * As there can be many instances of a stream, there is mixing on the static class side to decide which one is the active source.
+//      * The static output side can be used just like with MixDOM shortcut: Stream.Content, Stream.ContentCopy, Stream.copyContent(...) and Stream.withContent(...)
+//  - To account for situations where you might have access to a stream but it might be empty, there's a MixDOM.EmptyStream pseudo class.
+//      * It actually extends PseudoEmpty but has typing of ComponentStreamType. You can use its public members and methods in the flow, they'll just return null.
+//
+// II - CHILDREN NEEDS:
+//  - Finally we also need to do bookkeeping of children needs so that can use withContent as well as specifically define needs for a boundary.
+//      * Like always, this is done via contentAPI, but with the getFor(Stream, ...) method.
+//  - When you have stable access to the stream, it's relatively straightforward: just use contentApi.getFor(MyStream) to get the children or .needsFor to mark the needs.
+//      * As normally, using the getFor method also by default marks the "temp" needs to the contentAPI's bookkeeping.
+//  - If you don't have stable access, you should use an effect and run it when the stream has changed (eg. in state.PopupStream).
+//      * The effect's mount part should set the needs, eg. `contentAPI.needsFor(MyStream, true)`, and the unmount part unset them `.needsFor(MyStream, null)`.
+//      * If you have EmptyStreams in the flow you can use `MyStream.isStream()` method to tell which is a real stream. The ContentAPI methods also use it internally.
+//  - Note that normally you never need to assign specific needs.
+//      * You can just insert the content by `MyStream.Content`, or use a wrapper that auto-sets needs: `MyStream.withContent(...)` or to handle each kid with auto needs `contentAPI.getFor(MyStream)`.
+// 
+// 
+// - OLD MAIN IDEA (on the way to v3.0) - //
 // 
 // DEV. NOTE:
 // .. The ContextStreams concept was dropped as you can achieve the same ends via sharing the stream through context data.
