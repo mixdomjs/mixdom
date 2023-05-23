@@ -48,7 +48,6 @@ export const _Apply = {
         "portal": 2,
         "pass": 3,
         "host": 4,
-        // "contexts": 5,
     }, // as Record<MixDOMDefType, number>,
 
 
@@ -673,9 +672,6 @@ export const _Apply = {
 
                 // - Content passing (before update, after contexts) - //
 
-                // Prepare.
-                const isStream = component.constructor.MIX_DOM_CLASS === "Stream";
-
                 // Collect a new envelope for the content.
                 // .. Note, there will not be a situation that toDef is a boundary and also has simple content - so always has childDefs.
                 let newEnvelope: MixDOMContentEnvelope | null = null;
@@ -698,7 +694,7 @@ export const _Apply = {
                 }
 
                 // Refresh source connection and collect infos from it.
-                if (isStream)
+                if (component.constructor.MIX_DOM_CLASS === "Stream")
                     allChanges = _Apply.mergeChanges( allChanges, (component as ComponentStream).reattachSource(true) );
 
                 // Pre-refresh and collect interested.
@@ -975,10 +971,7 @@ export const _Apply = {
                 // Note that cousinDefs is one time used and not used for clean up. It's okay to splice or not splice from it.
                 const cousinDefs = defsByTags && defsByTags.get(sTag);
                 if (cousinDefs) {
-                    let ii = -1;
                     for (const def of cousinDefs) {
-                        // Prepare.
-                        ii++;
                         // Not matching.
                         if (def.key !== childDef.key || !unusedDefs.has(def))
                             continue;

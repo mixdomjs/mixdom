@@ -288,9 +288,11 @@ export class ContentClosure {
     /** Internal helper to apply a new envelope and update any interested inside, returning the infos. */
     public applyEnvelope(newEnvelope: MixDOMContentEnvelope | null): MixDOMChangeInfos {
         // Update interested.
-        this.preRefresh(newEnvelope);
+        const interested = this.preRefresh(newEnvelope);
+        const extraInfos: MixDOMChangeInfos | null = interested && HostServices.updateInterested(interested);
         // Apply and get infos.
-        return this.applyRefresh();
+        const ourInfos = this.applyRefresh();
+        return extraInfos ? [ extraInfos[0].concat(ourInfos[0]), extraInfos[1].concat(ourInfos[1]) ] : ourInfos;
     }
 
 

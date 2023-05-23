@@ -467,11 +467,17 @@ export class Host<Contexts extends MixDOMContextsAll = {}> {
         // Add a listener and trigger refresh.
         else {
             // Add to refresh wait.
-            const side = renderSide ? "_afterRender" : "_afterUpdate";
-            (this.services[side] || (this.services[side] = [])).push(callback);
+            this.addRefreshCall(callback, renderSide);
             // Trigger updates.
             this.services.triggerUpdates(updateTimeout, renderTimeout);
         }
+    }
+
+    /** This adds a one-shot callback to the refresh cycle (update / render) - without triggering refresh. (So like afterRefreshCall but without refreshing.) */
+    public addRefreshCall(callback: () => void, renderSide: boolean = false): void {
+        // Add to callback queue.
+        const side = renderSide ? "_afterRender" : "_afterUpdate";
+        (this.services[side] || (this.services[side] = [])).push(callback);
     }
     
     /** Trigger refreshing the host's pending updates and render changes. */

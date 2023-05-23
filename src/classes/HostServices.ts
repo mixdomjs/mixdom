@@ -195,7 +195,7 @@ export class HostServices {
         if (this._isUpdating)
             return;
         // Refresh.
-        this.refreshWithTimeout("update", forceUpdateTimeout);
+        this.triggerRefreshFor("update", forceUpdateTimeout);
     }
 
     /** This method should always be used when executing updates within a host - it's the main orchestrator of updates.
@@ -238,7 +238,7 @@ export class HostServices {
                 this.rInfosPending.push(renderInfos);
             if (bChanges[0]) {
                 if (this.host.settings.useImmediateCalls)
-                    HostServices.callBoundaryChanges(bChanges);
+                    HostServices.callBoundariesBy(bChanges);
                 else
                     this.rCallsPending.push(bChanges);
             }
@@ -247,11 +247,10 @@ export class HostServices {
 
         // Call listeners.
         if (this._afterUpdate)
-            for (const resolve of this._afterUpdate)
-                resolve();
+            this.callAndClear("_afterUpdate");
 
         // Render.
-        this.refreshWithTimeout("render", postTimeout);
+        this.triggerRefreshFor("render", postTimeout);
 
         // Finished.
         delete this._isUpdating;
@@ -438,42 +437,43 @@ export class HostServices {
         if (boundaryChanges) {
             // Immediately.
             if (this.host.settings.useImmediateCalls)
-                HostServices.callBoundaryChanges(boundaryChanges);
+                HostServices.callBoundariesBy(boundaryChanges);
             // After rendering.
             else
                 this.rCallsPending.push(boundaryChanges);
         }
         // Refresh.
-        this.refreshWithTimeout("render", forceRenderTimeout);
+        this.triggerRefreshFor("render", forceRenderTimeout);
     }
 
     private runRender() {
         // Clear timer ref.
         this.renderTimer = null;
         // Render infos.
-        for (const renderInfos of this.rInfosPending)
+        const infos = this.rInfosPending;
+        this.rInfosPending = [];
+        for (const renderInfos of infos)
             if (renderInfos[0])
                 this.renderer.applyToDOM(renderInfos);
-        this.rInfosPending = [];
         // Boundary changes.
-        for (const boundaryChanges of this.rCallsPending)
-            if (boundaryChanges[0])
-                HostServices.callBoundaryChanges(boundaryChanges);
+        const calls = this.rCallsPending;
         this.rCallsPending = [];
+        for (const boundaryChanges of calls)
+            if (boundaryChanges[0])
+                HostServices.callBoundariesBy(boundaryChanges);
         // Call listeners.
         if (this._afterRender)
-            for (const resolve of this._afterRender)
-                resolve();
+            this.callAndClear("_afterRender");
     }
 
 
     // - Helpers - //
 
-    private refreshWithTimeout(side: "update" | "render", forceTimeout?: number | null) {
+    private triggerRefreshFor(side: "update" | "render", forceTimeout?: number | null) {
         if (side === "update")
-            this.updateTimer = _Lib.refreshWithTimeout(this, this.runUpdates, this.updateTimer, this.host.settings.updateTimeout, forceTimeout);
+            this.updateTimer = _Lib.callWithTimeout(this, this.runUpdates, this.updateTimer, this.host.settings.updateTimeout, forceTimeout);
         else
-            this.renderTimer = _Lib.refreshWithTimeout(this, this.runRender, this.renderTimer, this.host.settings.renderTimeout, forceTimeout);
+            this.renderTimer = _Lib.callWithTimeout(this, this.runRender, this.renderTimer, this.host.settings.renderTimeout, forceTimeout);
     }
 
 
@@ -571,9 +571,17 @@ export class HostServices {
     }
 
 
-    // - Private static - //
+    // - Private helpers - //
+    
+    /** Get callbacks by a property and delete the member and call each. */
+    private callAndClear(property: string) {
+        const calls = this[property] as Array<() => void>;
+        delete this[property];
+        for (const callback of calls)
+            callback();
+    }
 
-    private static callBoundaryChanges(boundaryChanges: MixDOMSourceBoundaryChange[]) {
+    private static callBoundariesBy(boundaryChanges: MixDOMSourceBoundaryChange[]) {
         // Loop each.
         for (const info of boundaryChanges) {
             // Parse.

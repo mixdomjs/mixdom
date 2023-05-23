@@ -123,7 +123,7 @@ export class Context<Data = any, Signals extends SignalsRecord = any> extends Da
     }
 
     public triggerRefresh(forceTimeout?: number | null): void {
-        this.refreshTimer = _Lib.refreshWithTimeout(this, this.refreshPending, this.refreshTimer, this.settings.refreshTimeout, forceTimeout) as any;
+        this.refreshTimer = _Lib.callWithTimeout(this, this.refreshPending, this.refreshTimer, this.settings.refreshTimeout, forceTimeout) as any;
     }
 
     

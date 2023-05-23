@@ -817,13 +817,15 @@ declare class HostServices {
     /** This absorbs infos from the updates done. Infos are for update calls and to know what to render. Triggers calling runRender. */
     absorbChanges(renderInfos: MixDOMRenderInfo[] | null, boundaryChanges?: MixDOMSourceBoundaryChange[] | null, forceRenderTimeout?: number | null): void;
     private runRender;
-    private refreshWithTimeout;
+    private triggerRefreshFor;
     /** Whenever a change happens, we want the states to be immediately updated (for clearer and more flexible behaviour).
      * To do this, we need to set them immediately and at the same time collect old info (unless had old collected already). */
     static preSetUpdates(boundary: SourceBoundary, updates: MixDOMComponentPreUpdates): void;
     static updateInterested(bInterested: Set<SourceBoundary>, sortBefore?: boolean): MixDOMChangeInfos;
     static shouldUpdateBy(boundary: SourceBoundary, newUpdates: MixDOMComponentUpdates, preUpdates: MixDOMComponentUpdates | null): boolean;
-    private static callBoundaryChanges;
+    /** Get callbacks by a property and delete the member and call each. */
+    private callAndClear;
+    private static callBoundariesBy;
 }
 
 /** Technically should return void. But for conveniency can return anything - does not use the return value in any case. */
@@ -1332,6 +1334,8 @@ declare class Host<Contexts extends MixDOMContextsAll = {}> {
      * - If there's nothing pending, then will call immediately.
      * - Note that this uses the signals system, so the listener is called among other listeners depending on the adding order. */
     afterRefreshCall(callback: () => void, renderSide?: boolean, updateTimeout?: number | null, renderTimeout?: number | null): void;
+    /** This adds a one-shot callback to the refresh cycle (update / render) - without triggering refresh. (So like afterRefreshCall but without refreshing.) */
+    addRefreshCall(callback: () => void, renderSide?: boolean): void;
     /** Trigger refreshing the host's pending updates and render changes. */
     triggerRefresh(updateTimeout?: number | null, renderTimeout?: number | null): void;
     /** Pause the rendering. Resume it by calling resume(), rehydrate() or rehydrateWith(). */

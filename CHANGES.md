@@ -1,10 +1,22 @@
+## v3.1.1
+
+### Tiny fixes for v3.1
+
+- Fixing two tiny refactoring bugs (in relation to that Host no longer uses SignalMan).
+  1. Refreshing the source with multiple **ComponentStreams** sources was not functioning correctly. (Bug emerged in v3.1 due to refactoring code.)
+  2. The one-shot calls made with `afterRefresh` and `afterRefreshCall` were not actually one-shots: the clearing part was missing (likewise due to refactoring).
+
+### Enhancements
+
+- Added `addRefreshCall(callback, renderSide = false)` method on the `Host` class. It's like `afterRefreshCall` but does _not_ trigger a refresh - simply adds a one-shot callback.
+
 ## v3.1.0 (into summer shape)
 
 ### A new minor version: v3.1
 
 - Reducing the size of the library from 89.2kb to 74.9kb minified - dropping over 14kb (about 1/6). In total dropped about 24kb and then reimplemented similar feature set with about 10kb.
 
-- The changes mainly reorganizing a few features while solving some special cases. As a result, using the library is a bit clearer, while it's slimmer without losses in the overall feature set.
+- The changes mainly reorganize a few features while solving some special cases. As a result, using the library is a bit clearer, while it's slimmer without losses in the overall feature set.
 
 - 1. Dropping and partly reorganizing how **ContentAPI** related features work.
   2. Reorganizing how the data and signals are used for **Hosts**, and how **Contexts** relate to them.
@@ -48,7 +60,7 @@
 - Changed how the Host duplication system works. Now there's a **HostShadowAPI** class instance (on `host.shadowAPI`) that is shared between all duplicated - it doesn't matter who is the source. Accordingly the `sourceHost` and `ghostHosts` members are removed from **Host** class.
 - Renamed **ShadowAPI** to **ComponentShadowAPI** and likewise **WiredAPI** to **ComponentWiredAPI** to avoid confusion with the new **HostShadowAPI**.
 - Renamed ComponentWrapper (back to) **ComponentWired** for clarity of purpose. Accordingly named the WrappedAPI and `component.wrappers` respectively. (The fact that the concept works by creating a *wrapper* component is secondary to why it's used: to wire the component to an external source.)
-- Renamed `enum MixDOMCompareDepth` to just `enum MixDOMCompareDepth`. Likewise on the MixDOM object it's: `MixDOM.CompareDepth`.
+- Renamed `enum MixDOMCompareDepthByMode` to just `enum MixDOMCompareDepth`. Likewise on the MixDOM object it's: `MixDOM.CompareDepth`.
 - Dropped `enum ContextAttach` - there's now only direct ties, and for Components also ones inherited from the Host. (No need for a whole enum.)
 - Dropped the `{ props, children }` extra info as `this` for **Spread** funcs - no real point.
 - Dropped `host.settings.shouldUpdateWithNothing` - it's kind of weird to thing to control.

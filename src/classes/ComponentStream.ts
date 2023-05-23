@@ -189,7 +189,7 @@ export const createStream = (): ComponentStreamType =>
             // .... 1. Try having one source and remove it (-> null). If the inserter has withContent, then uses the interested ones, while refreshStream wouldn't run (= already removed source).
             // .... 2. Try having two sources and remove the active one (-> refresh). The refreshStream should run to update the content.
             if (withSourceRefresh || interested)
-                stream.boundary.host.afterRefreshCall(() => {
+                stream.boundary.host.addRefreshCall(() => {
                     // Before we refresh the stream connections, let's premark all our interested boundaries to have no stream content (childDefs: []).
                     // .. If the refreshing finds a new stream, it will update the content then again, before the actual update is run.
                     if (interested) {
@@ -273,7 +273,7 @@ export const createStream = (): ComponentStreamType =>
                 // Cancel - if has been overtaken.
                 if (didRemove && _Stream.source !== stream)
                     return;
-                // Pre-refresh envelope.
+                // Refresh envelope.
                 const boundary = stream.boundary;
                 _Stream.source = stream;
                 closure.sourceBoundary = boundary;
@@ -295,9 +295,9 @@ export const createStream = (): ComponentStreamType =>
                 closure.sourceBoundary = stream && stream.boundary;
                 // Did get removal infos.
                 if (oldInfos[0][0] || oldInfos[1][0]) {
-                    oldHost.services.absorbChanges(oldInfos[0], oldInfos[1], forceRenderTimeout);
                     if (addNew)
-                        oldHost.afterRefreshCall(addNew, false);
+                        oldHost.addRefreshCall(addNew, false); // On the update side.
+                    oldHost.services.absorbChanges(oldInfos[0], oldInfos[1], forceRenderTimeout);
                 }
                 // Just add, if even that.
                 else if (addNew)

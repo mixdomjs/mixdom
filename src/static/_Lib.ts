@@ -162,7 +162,7 @@ export const _Lib = {
 
     /** Generic helper for classes with timer and method to call to execute rendering with a very specific logic.
      * - Returns the value that should be assigned as the stored timer (either existing one, new one or null). */
-    refreshWithTimeout<Obj extends object, Timer extends number | NodeJSTimeout>(obj: Obj, callback: (this: Obj) => void, currentTimer: Timer | null, defaultTimeout: number | null, forceTimeout?: number | null): Timer | null {
+    callWithTimeout<Obj extends object, Timer extends number | NodeJSTimeout>(obj: Obj, callback: (this: Obj) => void, currentTimer: Timer | null, defaultTimeout: number | null, forceTimeout?: number | null): Timer | null {
         // Clear old timer if was given a specific forceTimeout (and had a timer).
         if (currentTimer !== null && forceTimeout !== undefined) {
             clearTimeout(currentTimer);
