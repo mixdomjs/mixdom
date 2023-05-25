@@ -1824,7 +1824,7 @@ interface ComponentStream extends Component<{
     /** To refresh sub mixing - mainly the importance prop. */
     refreshSource(forceRenderTimeout?: number | null): void;
     /** Returns info for removal and additions. */
-    reattachSource(fully?: boolean): MixDOMChangeInfos | null;
+    reattachSource(): MixDOMChangeInfos | null;
 }
 /** Static class side for stream output. */
 interface ComponentStreamType extends ComponentType<{
@@ -1855,9 +1855,9 @@ interface ComponentStreamType extends ComponentType<{
     sources: Set<ComponentStream>;
     addSource(stream: ComponentStream): void;
     removeSource(stream: ComponentStream, withSourceRefresh?: boolean): MixDOMChangeInfos | null;
-    reattachSourceBy(stream: ComponentStream, fully?: boolean): MixDOMChangeInfos | null;
+    reattachSourceBy(stream: ComponentStream): MixDOMChangeInfos | null;
     refreshStream(forceRenderTimeout?: number | null): void;
-    getBestStream(): ComponentStream | null;
+    getBestStream(preferCurrent?: boolean): ComponentStream | null;
 }
 /** Create a component for streaming. */
 declare const createStream: () => ComponentStreamType;

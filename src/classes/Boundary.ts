@@ -17,7 +17,7 @@ import { _Apply } from "../static/_Apply";
 import { ContentClosure } from "./ContentClosure";
 import { Component, ComponentFunc, ComponentType } from "./Component";
 import { ComponentStream, ComponentStreamType } from "./ComponentStream";
-import { ComponentShadow, ComponentShadowAPI } from "./ComponentShadow";
+import { ComponentShadowAPI } from "./ComponentShadow";
 import { Host } from "./Host";
 
 
@@ -185,7 +185,7 @@ export class SourceBoundary extends BaseBoundary {
     /** Should actually only be called once. Initializes a Component class and assigns renderer and so on. */
     reattach(): void {
         // Nullify for a moment. It will be set back below in all cases.
-        this.component = null as unknown as ComponentShadow;
+        this.component = null as unknown as Component;
         const props = this._outerDef.props || {};
         // Setup the rendering.
         let tag = this._outerDef.tag;

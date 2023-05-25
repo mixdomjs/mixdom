@@ -695,7 +695,12 @@ export const _Apply = {
 
                 // Refresh source connection and collect infos from it.
                 if (component.constructor.MIX_DOM_CLASS === "Stream")
-                    allChanges = _Apply.mergeChanges( allChanges, (component as ComponentStream).reattachSource(true) );
+                    allChanges = _Apply.mergeChanges( allChanges, (component as ComponentStream).reattachSource() );
+                    //
+                    // <-- Do we strictly speaking need this? Doesn't host.services.updateBoundary's refreshStream do the trick more fully?
+                    // ... However, this does work with direct infos (unlike .refreshStream), which is preferable. But this does not include selecting best source, so we can't only have this.
+                    // ... Let's just keep it as it is. Maybe it's important for cases where would simultaneously put higher importance and move an element in to that stream.
+
 
                 // Pre-refresh and collect interested.
                 /** The closure of this boundary.
@@ -709,10 +714,7 @@ export const _Apply = {
                     bInterested = bClosure.preRefresh(newEnvelope);
                     // Update the chainedClosures chaining.
                     const sClosure = sourceBoundary.closure;
-                    if (aDef.hasPassWithin)
-                        (sClosure.chainedClosures || (sClosure.chainedClosures = new Set())).add(bClosure);
-                    else
-                        sClosure.chainedClosures?.delete(bClosure);
+                    aDef.hasPassWithin ? (sClosure.chainedClosures || (sClosure.chainedClosures = new Set())).add(bClosure) : sClosure.chainedClosures?.delete(bClosure);
                 }
 
 

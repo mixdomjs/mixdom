@@ -54,7 +54,7 @@ export interface ComponentStream extends Component<{ props: ComponentStreamProps
     /** To refresh sub mixing - mainly the importance prop. */
     refreshSource(forceRenderTimeout?: number | null): void;
     /** Returns info for removal and additions. */
-    reattachSource(fully?: boolean): MixDOMChangeInfos | null;
+    reattachSource(): MixDOMChangeInfos | null;
 }
 /** Static class side for stream output. */
 export interface ComponentStreamType extends ComponentType<{ props: ComponentStreamProps; }> {
@@ -88,9 +88,9 @@ export interface ComponentStreamType extends ComponentType<{ props: ComponentStr
     // Internal methods.
     addSource(stream: ComponentStream): void;
     removeSource(stream: ComponentStream, withSourceRefresh?: boolean): MixDOMChangeInfos | null;
-    reattachSourceBy(stream: ComponentStream, fully?: boolean): MixDOMChangeInfos | null;
+    reattachSourceBy(stream: ComponentStream): MixDOMChangeInfos | null;
     refreshStream(forceRenderTimeout?: number | null): void;
-    getBestStream(): ComponentStream | null;
+    getBestStream(preferCurrent?: boolean): ComponentStream | null;
 }
 
 
@@ -121,8 +121,8 @@ export const createStream = (): ComponentStreamType =>
         }
 
         /** Returns info for removal and additions. */
-        public reattachSource(fully: boolean = false): MixDOMChangeInfos | null {
-            return _Stream.reattachSourceBy(this, fully);
+        public reattachSource(): MixDOMChangeInfos | null {
+            return _Stream.reattachSourceBy(this);
         }
 
         /** To refresh sub mixing - mainly the importance prop. */
@@ -193,7 +193,6 @@ export const createStream = (): ComponentStreamType =>
                     // Before we refresh the stream connections, let's premark all our interested boundaries to have no stream content (childDefs: []).
                     // .. If the refreshing finds a new stream, it will update the content then again, before the actual update is run.
                     if (interested) {
-                        const map = new Map([[stream, []] as [ ComponentStream, MixDOMDefTarget[]]]);
                         for (const b of interested)
                             b.host.services.absorbUpdates(b, { force: true });
                     }
@@ -205,8 +204,10 @@ export const createStream = (): ComponentStreamType =>
             return infos;
         }
 
-        /** The one with highest importance number wins. Otherwise, prefers the first in instance order. */
-        public static getBestStream(): ComponentStream | null {
+        /** The one with highest importance number wins. Otherwise, prefers the first in instance order.
+         * - If preferCurrent = true, then prefers the already active one if still highest importance. (By default is true.)
+         */
+        public static getBestStream(preferCurrent: boolean = true): ComponentStream | null {
             // Get only one or none.
             const sources = _Stream.sources;
             const count = sources.size;
@@ -223,20 +224,18 @@ export const createStream = (): ComponentStreamType =>
                     continue;
                 }
             }
-            return source;
+            // Choose the 
+            return preferCurrent && importance === _Stream.source?.props.importance && _Stream.source || source;
         }
 
         /** Returns info for removal and additions.
          * - Note that this does not include the destruction info, if it belongs to another host.
          *   * Instead in that case will execute the destruction immediately in that other host, and return info about addition if any.
          *   * This is to avoid rare bugs from arising, eg: in MixDOMRender marking external elements is host based. */
-        public static reattachSourceBy(source: ComponentStream, fully: boolean = false): MixDOMChangeInfos | null {
-            // Same source - or cannot take over.
+        public static reattachSourceBy(source: ComponentStream): MixDOMChangeInfos | null {
+            // Same source, or cannot hijack forcibly.
             const oldSource = _Stream.source;
-            if (oldSource === source || oldSource && !fully)
-                return null;
-            // Cannot hijack forcibly.
-            if (oldSource !== source && oldSource && (source.props.importance || 0) <= (oldSource.props.importance || 0))
+            if (oldSource === source || ((source.props.importance || 0) <= (oldSource ? oldSource.props.importance || 0 : -Infinity)))
                 return null;
             // Get changes.
             let infos: MixDOMChangeInfos | null = null;
@@ -252,7 +251,8 @@ export const createStream = (): ComponentStreamType =>
             // Take over.
             _Stream.source = source;
             _Stream.closure.sourceBoundary = boundary;
-            // Add.
+            // Apply the envelope - unless there's nothing to apply.
+            // .. Note that we never get here if the source was already this stream. So our envelope is nouveau for _Stream.closure.
             if (boundary.closure.envelope)
                 infos = _Apply.mergeChanges(infos, _Stream.closure.applyEnvelope(boundary.closure.envelope));
             // Return changes - for both destruction and additions.
@@ -270,19 +270,19 @@ export const createStream = (): ComponentStreamType =>
             const closure = _Stream.closure;
             // Function to add new.
             const addNew = stream ? (didRemove = true) => {
-                // Cancel - if has been overtaken.
-                if (didRemove && _Stream.source !== stream)
-                    return;
-                // Refresh envelope.
+                // Cancel, if already been applied - or if the remove process had run and source is different (it pre-assigns us).
                 const boundary = stream.boundary;
+                if (boundary.closure.envelope === closure.envelope || didRemove && _Stream.source !== stream)
+                    return;
+                // Assign source.
                 _Stream.source = stream;
                 closure.sourceBoundary = boundary;
-                const infos = closure.applyEnvelope(boundary.closure.envelope);
+                // Refresh envelope.
+                const [rInfos, bCalls ]= closure.applyEnvelope(boundary.closure.envelope);
                 // Absorb changes - immediately if also removed old.
-                if (infos[0][0] || infos[1][0])
-                    boundary.host.services.absorbChanges(infos[0], infos[1], didRemove ? null : forceRenderTimeout);
+                if (rInfos[0] || bCalls[0])
+                    boundary.host.services.absorbChanges(rInfos, bCalls, didRemove ? null : forceRenderTimeout);
             } : null;
-
             // Remove.
             // .. Already has a source.
             if (oldSource) {

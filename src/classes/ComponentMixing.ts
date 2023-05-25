@@ -184,16 +184,7 @@ export function mixComponentFuncs(...args: [...funcs: ComponentFunc[], useRender
  *      * Often the purpose is to extend props, state and/or class - especially class data becomes useful to hold info from different closures. Even partial renderers.
  *      * Note that each component func can still override state with: `component.state = { ...myStuff }`. The process detects changes and combines the states together if changed.
  */
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, Mixed extends ExtendComponentFunc<A, ExtraInfo>>(a: A, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B> & ExtraInfo>>(a: A, b: B, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C> & ExtraInfo>>(a: A, b: B, c: C, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D> & ExtraInfo>>(a: A, b: B, c: C, d: D, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E, F> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, f: F, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E, F, G> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, f: F, g: G, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, H extends ComponentFuncExtends<A & B & C & D & E & F & G, H>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E, F, G, H> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
-
-// We cannot reuse the Mixed for the return if we want the return to be `Func & { _Info: Info }`;
+// Note. We cannot reuse the Mixed for the return if we want the return to be `Func & { _Info: Info }`;
 export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, Mixed extends ExtendComponentFunc<A, ExtraInfo>>(a: A, composer: Mixed, extraInfo?: ExtraInfo): ExtendComponentFunc<A, ExtraInfo>;
 export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B> & ExtraInfo>>(a: A, b: B, composer: Mixed, extraInfo?: ExtraInfo): ComponentFunc<CombineInfosFromComponentFuncs<A, B> & ExtraInfo>;
 export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C> & ExtraInfo>>(a: A, b: B, c: C, composer: Mixed, extraInfo?: ExtraInfo): ComponentFunc<CombineInfosFromComponentFuncs<A, B, C> & ExtraInfo>;
@@ -345,6 +336,114 @@ export function mixComponentClassMixins<Base extends ComponentType, A extends Co
 export function mixComponentClassMixins<Base extends ComponentType, A extends ComponentMixinExtendsInfo<Base["_Info"] & {}, A>, B extends ComponentMixinExtendsInfo<Base["_Info"] & ReturnType<A>["_Info"] & {}, B>, C extends ComponentMixinExtendsInfo<Base["_Info"] & GetComponentInfoFromMixins<A, B>, C>, D extends ComponentMixinExtendsInfo<Base["_Info"] & GetComponentInfoFromMixins<A, B, C>, D>, E extends ComponentMixinExtendsInfo<Base["_Info"] & GetComponentInfoFromMixins<A, B, C, D>, E>, F extends ComponentMixinExtendsInfo<Base["_Info"] & GetComponentInfoFromMixins<A, B, C, D, E>, F>, G extends ComponentMixinExtendsInfo<Base["_Info"] & GetComponentInfoFromMixins<A, B, C, D, E, F>, G>, H extends ComponentMixinExtendsInfo<Base["_Info"] & GetComponentInfoFromMixins<A, B, C, D, E, F, G>, H>>(base: Base, a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H): ComponentType<Base["_Info"] & GetComponentInfoFromMixins<A, B, C, D, E, F, G, H>>;
 export function mixComponentClassMixins(...args: any[]) { return (mixComponentMixins as any)(...args); }
 
+/** This mixes together a Component class and one or many functions. 
+ * - By default, attaches the return of the last function as the renderer (if function type, otherwise an earlier one). 
+ * - Optionally as the 3rd arg, can provide a boolean to use the class renderer instead. */
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>>(Base: Class, a: A, useClassRender?: boolean): A;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>>(Base: Class, a: A, b: B, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B>>>;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>>(Base: Class, a: A, b: B, c: C, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C>>>;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>>(Base: Class, a: A, b: B, c: C, d: D, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D>>>;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>>(Base: Class, a: A, b: B, c: C, d: D, e: E, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E>>>;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>, F extends ComponentFuncExtends<BaseFunc & A & B & C & D & E, F>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E, F>>>;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>, F extends ComponentFuncExtends<BaseFunc & A & B & C & D & E, F>, G extends ComponentFuncExtends<BaseFunc & A & B & C & D & E & F, G>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E, F, G>>>;
+export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>, F extends ComponentFuncExtends<BaseFunc & A & B & C & D & E, F>, G extends ComponentFuncExtends<BaseFunc & A & B & C & D & E & F, G>, H extends ComponentFuncExtends<BaseFunc & A & B & C & D & E & F & G, H>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E, F, G, H>>>;
+export function mixComponentClassFuncs(BaseClass: ComponentType, ...funcArgs: ComponentFunc[] | [...funcs: ComponentFunc[], useClassRender: boolean | undefined]) {
+    // Mix.
+    const useClassRender = typeof funcArgs[funcArgs.length - 1] !== "function" ? !!funcArgs.pop() : false;
+    // const compFunc = funcArgs.length > 1 ? mixComponentFuncs(...funcArgs as [ComponentFunc]) : funcArgs[0] as ComponentFunc;
+    const compFunc = funcArgs.length > 1 ? (mixComponentFuncs as any)(...funcArgs) : funcArgs[0] as ComponentFunc;
+    // Return a new class extending the base.
+    return { [BaseClass.name]: class extends (BaseClass as ComponentType) {
+        // Assign render method. It will only be used for the very first time.
+        render(initProps: Dictionary) {
+            // Run the compFunc initializer once.
+            const output = compFunc(initProps, this, this.contextAPI as ComponentContextAPI);
+            // Return a renderer.
+            return useClassRender ? super.render : typeof output === "function" ? output : () => output;
+        }
+    }}[BaseClass.name] as any;
+}
+
+/** This mixes together a Component class and one or many functions with a composer function as the last function.
+ * - The last function is always used as the renderer and its typing is automatic.
+ *      * If you want to add extra props to the auto typed composer you can add them as an extra last argument: `{} as { props: { someStuff: boolean; } }`.
+ */
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, Mixed extends ExtendComponentFunc<BaseFunc, ExtraInfo>>(Base: Class, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A> & ExtraInfo>>(Base: Class, a: A, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B> & ExtraInfo>>(Base: Class, a: A, b: B, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E, F> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E, F, G> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, H extends ComponentFuncExtends<A & B & C & D & E & F & G, H>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E, F, G, H> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
+export function mixComponentClassFuncsWith(...funcs: any[]) {
+    const nFuncs = funcs.length;
+    return (mixComponentClassFuncs as any)(...(typeof funcs[nFuncs - 1] !== "function" ? funcs.slice(0, nFuncs - 1) : funcs)) as any;
+}
+
+
+// - Component HOCs - //
+
+export type ComponentHOC<RequiredType extends ComponentTypeAny, FinalType extends ComponentTypeAny> = (InnerComp: RequiredType) => FinalType;
+export type ComponentHOCBase = (InnerComp: ComponentTypeAny) => ComponentTypeAny;
+
+/** Combine many HOCs together. */
+// Note. There is something wrong with assigning a func to ComponentTypeAny upon compiling (not before) in module usage.
+// .. Something about the props not being okay to ComponentFunc<{}>. It only happens when using an untyped spread func as the BASE.
+// .... In that case the type is (props: { ...}) => any ..! Where as shouldn't be ANY.
+// .. Could solve it generally by using `Base extends any`, not ComponentTypeAny. But let's just leave it. If uses a typed base func works fine.
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A): SpreadFunc<(Intersect<GetComponentInfo<A> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B): SpreadFunc<(Intersect<GetComponentInfo<B> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C): SpreadFunc<(Intersect<GetComponentInfo<C> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D): SpreadFunc<(Intersect<GetComponentInfo<D> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E): SpreadFunc<(Intersect<GetComponentInfo<E> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F): SpreadFunc<(Intersect<GetComponentInfo<F> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G): SpreadFunc<(Intersect<GetComponentInfo<G> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny, H extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G, hoc8: (g: G) => H): SpreadFunc<(Intersect<GetComponentInfo<H> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny, H extends ComponentTypeAny, I extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G, hoc8: (g: G) => H, hoc9: (h: H) => I): SpreadFunc<(Intersect<GetComponentInfo<I> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny, H extends ComponentTypeAny, I extends ComponentTypeAny, J extends ComponentTypeAny>
+    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G, hoc8: (g: G) => H, hoc9: (h: H) => I, hoc10: (i: I) => J): SpreadFunc<(Intersect<GetComponentInfo<J> & {}> & {props: {}})["props"] & {}>;
+export function mixHOCs(baseComp: ComponentTypeAny, ...hocs: ComponentHOCBase[]): SpreadFunc {
+    // First compose new components.
+    let Base = baseComp;
+    for (const thisHOC of hocs)
+        Base = thisHOC(Base);
+    // Then create a def for the last component in the chain. We can just use a spread as our final component.
+    return (props) => newDef(Base, props, MixDOMContent);
+}
+
+
+// - Extra notes - //
+
+
+// It's again the same conceptual typing problem. We cannot provide just one argument and let the others flow from given. It's all or none.
+// .. So can't use this entwineComponentWith concept nicely without hassle, so can just use ExtendComponentFunc and MixDOM.component() instead.
+// 
+// export type EntwineComponentWith<Info extends Partial<ComponentInfo> = {}> = <Mixed extends ComponentFunc, Composer extends ComponentFunc<GetComponentInfo<Mixed> & Info>>(mixedFuncs: Mixed, composer: Composer) => ComponentFunc;
+// export function entwineComponentWith<Info extends Partial<ComponentInfo>, Mixed extends ComponentFunc>(mixedFuncs: Mixed, composer: CombineComponentFuncs<Mixed, ComponentFunc<Info>>) {}
+// export function entwineComponentWith2<Info extends Partial<ComponentInfo> = {}, Mixed extends ComponentFunc | null = null>(composer: [Mixed] extends [ComponentFunc] ? CombineComponentFuncs<Mixed, ComponentFunc<Info>> : ComponentFunc<Info>) {}
+
+
+// Cannot do reuse the Mixed for return.
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, Mixed extends ExtendComponentFunc<A, ExtraInfo>>(a: A, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B> & ExtraInfo>>(a: A, b: B, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C> & ExtraInfo>>(a: A, b: B, c: C, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D> & ExtraInfo>>(a: A, b: B, c: C, d: D, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E, F> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, f: F, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E, F, G> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, f: F, g: G, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+// export function mixComponentFuncsWith<ExtraInfo extends Partial<ComponentInfo>, A extends ComponentFuncExtends<ComponentFunc<{}>, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, H extends ComponentFuncExtends<A & B & C & D & E & F & G, H>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<A, B, C, D, E, F, G, H> & ExtraInfo>>(a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, composer: Mixed, extraInfo?: ExtraInfo): Mixed;
+
 
 // // Using two sets of overloads, one without base and one with base. This is fine, but typing experience is worse as the whole func is redlined.
 // // 
@@ -463,212 +562,3 @@ export function mixComponentClassMixins(...args: any[]) { return (mixComponentMi
 //         }
 //     }}[BaseClass.name] as any;
 // }
-/** This mixes together a Component class and one or many functions. 
- * - By default, attaches the return of the last function as the renderer (if function type, otherwise an earlier one). 
- * - Optionally as the 3rd arg, can provide a boolean to use the class renderer instead. */
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>>(Base: Class, a: A, useClassRender?: boolean): A;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>>(Base: Class, a: A, b: B, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B>>>;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>>(Base: Class, a: A, b: B, c: C, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C>>>;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>>(Base: Class, a: A, b: B, c: C, d: D, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D>>>;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>>(Base: Class, a: A, b: B, c: C, d: D, e: E, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E>>>;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>, F extends ComponentFuncExtends<BaseFunc & A & B & C & D & E, F>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E, F>>>;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>, F extends ComponentFuncExtends<BaseFunc & A & B & C & D & E, F>, G extends ComponentFuncExtends<BaseFunc & A & B & C & D & E & F, G>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E, F, G>>>;
-export function mixComponentClassFuncs<Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<BaseFunc & A, B>, C extends ComponentFuncExtends<BaseFunc & A & B, C>, D extends ComponentFuncExtends<BaseFunc & A & B & C, D>, E extends ComponentFuncExtends<BaseFunc & A & B & C & D, E>, F extends ComponentFuncExtends<BaseFunc & A & B & C & D & E, F>, G extends ComponentFuncExtends<BaseFunc & A & B & C & D & E & F, G>, H extends ComponentFuncExtends<BaseFunc & A & B & C & D & E & F & G, H>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, useClassRender?: boolean): ComponentType<GetComponentFuncInfo<CombineComponentFuncs<A, B, C, D, E, F, G, H>>>;
-export function mixComponentClassFuncs(BaseClass: ComponentType, ...funcArgs: ComponentFunc[] | [...funcs: ComponentFunc[], useClassRender: boolean | undefined]) {
-    // Mix.
-    const useClassRender = typeof funcArgs[funcArgs.length - 1] !== "function" ? !!funcArgs.pop() : false;
-    // const compFunc = funcArgs.length > 1 ? mixComponentFuncs(...funcArgs as [ComponentFunc]) : funcArgs[0] as ComponentFunc;
-    const compFunc = funcArgs.length > 1 ? (mixComponentFuncs as any)(...funcArgs) : funcArgs[0] as ComponentFunc;
-    // Return a new class extending the base.
-    return { [BaseClass.name]: class extends (BaseClass as ComponentType) {
-        // Assign render method. It will only be used for the very first time.
-        render(initProps: Dictionary) {
-            // Run the compFunc initializer once.
-            const output = compFunc(initProps, this, this.contextAPI as ComponentContextAPI);
-            // Return a renderer.
-            return useClassRender ? super.render : typeof output === "function" ? output : () => output;
-        }
-    }}[BaseClass.name] as any;
-}
-
-/** This mixes together a Component class and one or many functions with a composer function as the last function.
- * - The last function is always used as the renderer and its typing is automatic.
- *      * If you want to add extra props to the auto typed composer you can add them as an extra last argument: `{} as { props: { someStuff: boolean; } }`.
- */
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, Mixed extends ExtendComponentFunc<BaseFunc, ExtraInfo>>(Base: Class, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A> & ExtraInfo>>(Base: Class, a: A, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B> & ExtraInfo>>(Base: Class, a: A, b: B, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E, F> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E, F, G> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith<ExtraInfo extends Partial<ComponentInfo>, Class extends ComponentType, BaseFunc extends ComponentFunc & ComponentFunc<Class["_Info"] & {}>, A extends ComponentFuncExtends<BaseFunc, A>, B extends ComponentFuncExtends<A, B>, C extends ComponentFuncExtends<A & B, C>, D extends ComponentFuncExtends<A & B & C, D>, E extends ComponentFuncExtends<A & B & C & D, E>, F extends ComponentFuncExtends<A & B & C & D & E, F>, G extends ComponentFuncExtends<A & B & C & D & E & F, G>, H extends ComponentFuncExtends<A & B & C & D & E & F & G, H>, Mixed extends ComponentFunc<CombineInfosFromComponentFuncs<BaseFunc, A, B, C, D, E, F, G, H> & ExtraInfo>>(Base: Class, a: A, b: B, c: C, d: D, e: E, f: F, g: G, h: H, composer: Mixed, extraInfo?: ExtraInfo): ComponentType<GetComponentFuncInfo<Mixed>>;
-export function mixComponentClassFuncsWith(...funcs: any[]) {
-    const nFuncs = funcs.length;
-    return (mixComponentClassFuncs as any)(...(typeof funcs[nFuncs - 1] !== "function" ? funcs.slice(0, nFuncs - 1) : funcs)) as any;
-}
-
-
-// It's again the same conceptual typing problem. We cannot provide just one argument and let the others flow from given. It's all or none.
-// .. So can't use this entwineComponentWith concept nicely without hassle, so can just use ExtendComponentFunc and MixDOM.component() instead.
-// 
-// export type EntwineComponentWith<Info extends Partial<ComponentInfo> = {}> = <Mixed extends ComponentFunc, Composer extends ComponentFunc<GetComponentInfo<Mixed> & Info>>(mixedFuncs: Mixed, composer: Composer) => ComponentFunc;
-// export function entwineComponentWith<Info extends Partial<ComponentInfo>, Mixed extends ComponentFunc>(mixedFuncs: Mixed, composer: CombineComponentFuncs<Mixed, ComponentFunc<Info>>) {}
-// export function entwineComponentWith2<Info extends Partial<ComponentInfo> = {}, Mixed extends ComponentFunc | null = null>(composer: [Mixed] extends [ComponentFunc] ? CombineComponentFuncs<Mixed, ComponentFunc<Info>> : ComponentFunc<Info>) {}
-
-
-// - Component HOCs - //
-
-export type ComponentHOC<RequiredType extends ComponentTypeAny, FinalType extends ComponentTypeAny> = (InnerComp: RequiredType) => FinalType;
-export type ComponentHOCBase = (InnerComp: ComponentTypeAny) => ComponentTypeAny;
-
-/** Combine many HOCs together. */
-// Note. There is something wrong with assigning a func to ComponentTypeAny upon compiling (not before) in module usage.
-// .. Something about the props not being okay to ComponentFunc<{}>. It only happens when using an untyped spread func as the BASE.
-// .... In that case the type is (props: { ...}) => any ..! Where as shouldn't be ANY.
-// .. Could solve it generally by using `Base extends any`, not ComponentTypeAny. But let's just leave it. If uses a typed base func works fine.
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A): SpreadFunc<(Intersect<GetComponentInfo<A> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B): SpreadFunc<(Intersect<GetComponentInfo<B> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C): SpreadFunc<(Intersect<GetComponentInfo<C> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D): SpreadFunc<(Intersect<GetComponentInfo<D> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E): SpreadFunc<(Intersect<GetComponentInfo<E> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F): SpreadFunc<(Intersect<GetComponentInfo<F> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G): SpreadFunc<(Intersect<GetComponentInfo<G> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny, H extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G, hoc8: (g: G) => H): SpreadFunc<(Intersect<GetComponentInfo<H> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny, H extends ComponentTypeAny, I extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G, hoc8: (g: G) => H, hoc9: (h: H) => I): SpreadFunc<(Intersect<GetComponentInfo<I> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs<Base extends ComponentTypeAny, A extends ComponentTypeAny, B extends ComponentTypeAny, C extends ComponentTypeAny, D extends ComponentTypeAny, E extends ComponentTypeAny, F extends ComponentTypeAny, G extends ComponentTypeAny, H extends ComponentTypeAny, I extends ComponentTypeAny, J extends ComponentTypeAny>
-    (base: Base, hoc1: (base: Base) => A, hoc2: (a: A) => B, hoc3: (b: B) => C, hoc4: (c: C) => D, hoc5: (d: D) => E, hoc6: (e: E) => F, hoc7: (f: F) => G, hoc8: (g: G) => H, hoc9: (h: H) => I, hoc10: (i: I) => J): SpreadFunc<(Intersect<GetComponentInfo<J> & {}> & {props: {}})["props"] & {}>;
-export function mixHOCs(baseComp: ComponentTypeAny, ...hocs: ComponentHOCBase[]): SpreadFunc {
-    // First compose new components.
-    let Base = baseComp;
-    for (const thisHOC of hocs)
-        Base = thisHOC(Base);
-    // Then create a def for the last component in the chain. We can just use a spread as our final component.
-    return (props) => newDef(Base, props, MixDOMContent);
-}
-
-
-
-
-
-
-// - Testing - //
-
-
-// const MyMixin = (Base: ComponentTypeWithClass<MyMixinRequiresInfo>) => class _MyMixin extends (Base as ComponentTypeWithClass<MyMixinRequiresInfo & MyMixinInfo>) {
-//     // const MyMixin = createMixin<MyMixinInfo, MyMixinRequiresInfo>(Base => class _MyMixin extends Base {
-//
-//         // Extra members.
-//         hoverDisabled?: boolean;
-//         hoverTimeout: number;
-//
-//         // Construct with pass args. We need to distinguish props tho.
-//         constructor(props, ...passArgs: any[]) {
-//             super(props, ...passArgs);
-//             this.hoverTimeout = 500;
-//             this.state = {
-//                 hovered: false,
-//                 test: true
-//             }
-//         }
-//
-//         // Mouse enter and leave features.
-//         onMouseEnter() {
-//             if (!this.hoverDisabled)
-//                 this.setTimer("onMouseEnter", () => {
-//                     this.setInState("hovered", true);
-//                 }, this.hoverTimeout);
-//         }
-//         onMouseLeave() {
-//             if (this.hasTimer("onMouseEnter"))
-//                 this.clearTimer("onMouseEnter");
-//             if (this.state.hovered)
-//                 this.setInState("hovered", false);
-//         }
-//
-//     }
-// 
-// 
-// type MyMixinRequiresInfo = { class: { hoverTimeout: number; } };
-// type MyMixinInfo = { state: { test: boolean; } };
-// interface MyMixin0Info {
-//     state: { apina: boolean; };
-// }
-// const MyMixin0 = createMixin<MyMixin0Info>(Base => class _MyMixin extends Base { });
-// const MyMixin1 = createMixin<MyMixinInfo>(Base => class _MyMixin extends Base { });
-// const MyMixin1Req = createMixin<MyMixinInfo, MyMixin0Info>(Base => class _MyMixin extends Base {
-//     render() {
-//         this.setInState("test", false);
-//         return null;
-//     }
-// });
-
-// // // const Test: _ComponentMixin = MyMixin1;
-// // const Test2: ComponentMixinType<MyMixinInfo, {}> = MyMixin1;
-// const MyMixin2 = (Base: ComponentType<{}>) => class _MyMixin extends (Base as ComponentType<MyMixinInfo>) {}
-// // const MyMixin3 = (Base: ComponentType<{}>) => class _MyMixin extends Base {}
-// // 
-// const Test55555_FAIL = mixComponentMixins(MyMixin2, MyMixin1Req); // Should fail..! Correct..!
-// const Test555 = mixComponentMixins(MyMixin2, MyMixin0, MyMixin1Req); // Should not fail. Correct..!
-// const Test5555 = mixComponentMixins(MyMixin0, MyMixin0, MyMixin1Req); // Should not fail. Correct..!
-// const Test55555 = mixComponentMixins(MyMixin0, MyMixin1Req);
-
-
-
-
-// // - Test types - //
-// 
-// // Types for combining and extending generally.
-// export type ComponentTypeMixable<PreComp extends ComponentTypeAny = ComponentTypeAny, PostComp extends ComponentTypeAny = PreComp> = CombineComponentTypes<PreComp, PostComp> & { Info?: { required: PreComp; }; };
-// export type ComponentTypeExtends<A extends ComponentTypeAny, B extends ComponentTypeAny> = [B] extends [ComponentTypeMixable] ? [A] extends [NonNullable<B["_Info"]>["required"]] ? ComponentFunc : never : ComponentFunc;
-// export type ComponentTypeExtendsProps<A extends ComponentTypeAny, B extends ComponentTypeAny> = [(GetComponentInfo<A> & { props: {}; })["props"]] extends [(GetComponentInfo<B> & { props: {}; })["props"]] ? ComponentTypeAny : never;
-// export type CombineComponentTypes<
-//     A extends ComponentTypeAny = ComponentTypeAny,
-//     B extends ComponentTypeAny = ComponentTypeAny,
-//     C extends ComponentTypeAny = ComponentTypeAny,
-//     D extends ComponentTypeAny = ComponentTypeAny,
-//     E extends ComponentTypeAny = ComponentTypeAny,
-//     F extends ComponentTypeAny = ComponentTypeAny,
-//     G extends ComponentTypeAny = ComponentTypeAny,
-//     H extends ComponentTypeAny = ComponentTypeAny,
-// > = ComponentType<Omit<Partial<ComponentInfo> & GetComponentInfo<A> & GetComponentInfo<B> & GetComponentInfo<C> & GetComponentInfo<D> & GetComponentInfo<E> & GetComponentInfo<F> & GetComponentInfo<G> & GetComponentInfo<H>, "required">>;
-// 
-// export type HOCExtendsProps<RequiredProps extends Dictionary, HOC extends HOCType> = [GetComponentInfo<ReturnType<HOC>>["props"]] extends [RequiredProps] ? HOCType : never;
-// export type HOCExtendsComponent<Required extends ComponentTypeAny, HOC extends HOCType> = [GetComponentInfo<ReturnType<HOC>>] extends [GetComponentInfo<Required>] ? HOCType : never;
-// export type HOCExtendsComponent<Required extends ComponentTypeAny, HOC extends HOCType> = [ComponentType<GetComponentInfo<ReturnType<HOC>> & {}>] extends [ComponentType<GetComponentInfo<Required> & {}>] ? HOCType : never;
-// 
-// export type HOCExtendsComponent<Required extends ComponentTypeAny, HOC extends HOCType> = [GetComponentInfo<ReturnType<HOC>> & {}] extends [GetComponentInfo<Required> & {}] ? HOCType : never;
-// export type HOCExtendsHOC<ReqHOC extends HOCType, HOC extends HOCType> = [GetComponentInfo<ReturnType<HOC>>] extends [GetComponentInfo<ReturnType<ReqHOC>>] ? HOCType : never;
-// 
-// type CleanRecord<Type extends {}> = {[Key in string & keyof Type]: Type[Key]};
-// type CleanDoubleRecord<Type extends Record<any,any>> = {[Key in string & keyof Type]: [Type[Key]] extends [{}] ? CleanRecord<Type[Key]> : Type[Key] };
-// type CleanComponentInfo<Info extends Partial<ComponentInfo>> = WithoutUndefined<{ [Key in keyof Info]: [Record<any,any> | undefined] extends [Info[Key]] ? undefined : Info[Key] }>;
-// type UndefinedKeys<T> = { [K in keyof T]: T[K] extends undefined ? K : never }[keyof T];
-// type UndefinedKeysOr<T> = { [K in keyof T]: [Record<any,any> | undefined] extends [T[K]] ? K : never }[keyof T];
-// type WithoutUndefined<T> = T[keyof T] extends never ? never : Omit<T, UndefinedKeys<T>>;
-// 
-// 
-// type WithoutNever<T> = [{ [K in keyof T]: T[K] extends never ? K : never }[keyof T]] extends [never] ? T : never;
-// type InfoExtendsClean<Req extends Partial<ComponentInfo>, Ext extends Partial<ComponentInfo>> = WithoutNever<InfoExtends<CleanComponentInfo<Partial<ComponentInfo> & Req>, CleanComponentInfo<Partial<ComponentInfo> & Ext>>>;
-// type InfoExtends<Req extends Partial<ComponentInfo>, Ext extends Partial<ComponentInfo>> = 
-//     {[Key in keyof Req]:
-//         [Key] extends [keyof Ext] ? 
-//             [undefined] extends [Req[Key]] ? Ext[Key] : [Ext[Key]] extends [Req[Key]] ? Ext[Key] : never
-//         : never
-//     };
-// 
-// export type HOCTyped<RequiredType extends ComponentTypeAny = ComponentTypeAny, FinalType extends ComponentTypeAny = ComponentTypeAny> = (innerComp: RequiredType) => FinalType;
-// export type HOCType = (innerComp: ComponentTypeAny) => ComponentTypeAny;
-// export type HOCExtendsComponent<Required extends ComponentTypeAny, HOC extends HOCType> = [GetComponentInfo<ReturnType<HOC>> & {}] extends [GetComponentInfo<Required> & {}] ? HOCType : never;
-// export type HOCExtendsHOC<ReqHOC extends HOCType, HOC extends HOCType> = [GetComponentInfo<ReturnType<HOC>>] extends [GetComponentInfo<ReturnType<ReqHOC>>] ? HOCType : never;
-

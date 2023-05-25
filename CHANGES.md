@@ -1,3 +1,9 @@
+## v3.1.2
+
+### Tiny fix
+
+- Fixed a special case bug in relation to using multiple **ComponentStreams**, where would sometimes add the content twice when stream source was refreshed (in very specific circumstances only - also in v3.0). Also refined that the current source with same importance is _always_ kept.
+
 ## v3.1.1
 
 ### Tiny fixes for v3.1

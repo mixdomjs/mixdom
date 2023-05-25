@@ -61,13 +61,13 @@ export class ContentClosure {
     // - Needs - //
 
     /** Whether we have any actual content to pass. */
-    hasContent(): boolean {
+    public hasContent(): boolean {
         const aDef = this.envelope?.applied;
         return !(!aDef || aDef.disabled || (aDef.MIX_DOM_DEF === "fragment" && (!aDef.childDefs.length || aDef.childDefs[0].disabled && aDef.childDefs.length === 1)));
     }
 
     /** Get the content that we pass. */
-    readContent(shallowCopy: boolean = false): Readonly<MixDOMDefTarget[]> | null {
+    public readContent(shallowCopy: boolean = false): Readonly<MixDOMDefTarget[]> | null {
         if (!this.envelope)
             return null;
         const aDef = this.envelope.applied;
@@ -86,7 +86,7 @@ export class ContentClosure {
      *      * This is because, the parent no longer has to re-render - earlier had to using: .withContent(...contents). Instead only WithContent component updates.
      *      * Cyclical prevention would only be needed if deliberately formed one by defining render content for MyStream within MyStream.WithContent content pass.
      */
-    collectInterested(byStream?: ComponentStream | null): Set<SourceBoundary> | null {
+    public collectInterested(byStream?: ComponentStream | null): Set<SourceBoundary> | null {
         // From Stream.
         if (byStream)
             return byStream.constructor.closure?.withContents ? new Set(byStream.constructor.closure.withContents) : null;
@@ -114,7 +114,7 @@ export class ContentClosure {
      * - If was grounded for the first time, updates the internals and returns render infos and boundary updates for the content.
      * - If was already grounded, returns [] for infos.
      */
-    contentGrounded(groundingDef: MixDOMDefApplied, gBoundary: SourceBoundary | ContentBoundary, treeNode: MixDOMTreeNode, copyKey?: any): MixDOMChangeInfos {
+    public contentGrounded(groundingDef: MixDOMDefApplied, gBoundary: SourceBoundary | ContentBoundary, treeNode: MixDOMTreeNode, copyKey?: any): MixDOMChangeInfos {
 
         // Note that we don't collect listener boundaries.
         // .. Instead it's handled by downward flow (as content is rarely passed super far away).
@@ -149,7 +149,7 @@ export class ContentClosure {
     }
 
     /** Should be called when a treeNode that had grounded our content into the grounded tree is being cleaned up. */
-    contentUngrounded(groundingDef: MixDOMDefApplied): [MixDOMRenderInfo[], MixDOMSourceBoundaryChange[]] {
+    public contentUngrounded(groundingDef: MixDOMDefApplied): [MixDOMRenderInfo[], MixDOMSourceBoundaryChange[]] {
         // Not ours - don't touch.
         const info = this.groundedDefs.get(groundingDef);
         if (!info)
@@ -170,7 +170,7 @@ export class ContentClosure {
     // - Refreshing content - //
 
     /** Sets the new envelope so the flow can be pre-smart, but does not apply it yet. Returns the interested sub boundaries. */
-    preRefresh(newEnvelope: MixDOMContentEnvelope | null, byStream?: ComponentStream | null): Set<SourceBoundary> | null {
+    public preRefresh(newEnvelope: MixDOMContentEnvelope | null, byStream?: ComponentStream | null): Set<SourceBoundary> | null {
 
         // Notes about streaming:
         // 1. The normal content passing happens for the Stream source's closure by its parent.
@@ -232,7 +232,7 @@ export class ContentClosure {
     }
 
     /** Call this after preRefresh to do the actual update process. Returns infos for boundary calls and render changes. */
-    applyRefresh(forceUpdate: boolean = false): MixDOMChangeInfos {
+    public applyRefresh(forceUpdate: boolean = false): MixDOMChangeInfos {
 
         // If part of stream, our grounders are in the stream closure.
         if (this.stream && this.stream.canRefresh())

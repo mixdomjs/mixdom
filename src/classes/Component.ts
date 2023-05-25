@@ -328,16 +328,14 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
             // Extend.
             let didAdd = false;
             if (constProps) {
+                // Handle array.
                 if (Array.isArray(constProps))
-                    for (const prop of constProps) {
-                        this.constantProps[prop] = overrideEach ?? true;
-                        didAdd = true;
-                    }
+                    for (const prop of constProps)
+                        this.constantProps[prop] = ((didAdd = true) && overrideEach) ?? true;
+                // Handle dictionary.
                 else
-                    for (const prop in constProps) {
-                        this.constantProps[prop] = overrideEach ?? constProps[prop];
-                        didAdd = true;
-                    }
+                    for (const prop in constProps)
+                        this.constantProps[prop] = ((didAdd = true) && overrideEach) ?? constProps[prop];
             }
             // Remove totally.
             if (!didAdd && !extend)

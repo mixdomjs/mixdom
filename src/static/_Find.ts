@@ -23,11 +23,11 @@ export const _Find = {
     // boundariesWithin(origBoundary: SourceBoundary, includeNested: boolean = true): SourceBoundary[] {
     //     // Prepare.
     //     const list: SourceBoundary[] = [];
-	// 	let bLeft : (SourceBoundary | ContentBoundary)[] = [origBoundary];
-	// 	let boundary : SourceBoundary | ContentBoundary | undefined;
+    // 	let bLeft : (SourceBoundary | ContentBoundary)[] = [origBoundary];
+    // 	let boundary : SourceBoundary | ContentBoundary | undefined;
     //     let i = 0;
     //     // Loop recursively in tree order.
-	// 	while (boundary = bLeft[i]) {
+    // 	while (boundary = bLeft[i]) {
     //         // Next.
     //         i++;
     //         // Skip content boundaries, and all within them.
@@ -41,12 +41,12 @@ export const _Find = {
     //         // Skip going further.
     //         if (!includeNested && origBoundary !== boundary)
     //             continue;
-	// 		// Add child defs to top of queue.
-	// 		if (boundary.innerBoundaries[0]) {
-	// 		    bLeft = boundary.innerBoundaries.concat(bLeft.slice(i));
+    // 		// Add child defs to top of queue.
+    // 		if (boundary.innerBoundaries[0]) {
+    // 		    bLeft = boundary.innerBoundaries.concat(bLeft.slice(i));
     //             i = 0;
     //         }
-	// 	}
+    // 	}
     //     return list;
     // },
 
