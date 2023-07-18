@@ -439,7 +439,7 @@ export const _Apply = {
                 if (aDef.props !== toDef.props) {
                     // Add to pre-updates.
                     if (treeNode.boundary)
-                        HostServices.preSetUpdates(treeNode.boundary as SourceBoundary, { props: toDef.props });
+                        treeNode.boundary._outerDef.props = toDef.props;
                     // Update.
                     aDef.props = toDef.props || {};
                 }

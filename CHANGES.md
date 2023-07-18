@@ -1,3 +1,15 @@
+## v3.2.0
+
+### Enhancements
+
+- Added `component._lastState?` member and `component.getLastState()` callback to the **Component** class. They provide a way to get the state that was used during last render call - this is useful if you need to figure out things in relation to the *rendered* state (not the updated state that will trigger a new render).
+
+### Tiny changes
+
+- In relation to above, changed the lifecycle signals on the component from `prevUpdates, nextUpdates` to `prevProps, prevState`. At the moment of the calls, the props have been updated (and state earlier) so they are found as `component.props` (and `component.state`).
+- Also removed the `extend = true` argument from the component's `setState(partialState, ...)` method - now always extends.
+- Renamed **Effect** class (and methods related to it) to **Memo**, as it better describes it: it remembers the last input, and runs a callback on change. In relation to React terms, the actual functionality is somewhere in between React's useEffect, useMemo and useCallback.
+
 ## v3.1.2
 
 ### Tiny fix
@@ -96,7 +108,7 @@
 
 - Major breaking changes:
 
-- - Generally changed the name and naming from **UIDOM** to **MixDOM** regarding framework and all classes and typing. Also refined naming all around, in methods, members and typing. This better describes what this library is about.
+- - Generally changed the name and naming from **UIDom** (ui-dom) to **MixDOM** (mix-dom) regarding framework and all classes and typing. Also refined naming all around, in methods, members and typing. This better describes what this library is about.
   - Reorganized "actions" concept as "signals", using the common basis now found in many classes, called **SignalMan**. Likewise there is **DataMan** related to data listening features.
   - Cleaned up component class and functional forms. Now there's just `Component` (both as a class and function) in addition to the `Spread` functional rendering. The basic Component class supports lifecycle callbacks, state, timers, wrapped components, streaming and can be hooked up to contexts.
   - Removed `local` from `Component`. Now can use `cApi.listenToData` and hook it up with setting the component `state`.

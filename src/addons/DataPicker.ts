@@ -57,7 +57,7 @@ export type CreateDataSelector<Params extends any[], Data extends any> =
 
 // - Creator functions - //
 
-/** Create a data picker (returns a function): It's like Effect but for data with an intermediary extractor.
+/** Create a data picker (returns a function): It's like Memo but for data with an intermediary extractor.
  * - Give an extractor that extracts an array out of your customly defined arguments. Can return an array up to 10 typed members or more with `[...] as const` trick.
  * - Whenever the extracted output has changed (in shallow sense by default), the selector will be run.
  * - The arguments of the selector is the extracted array spread out, and it should return the output data solely based on them.

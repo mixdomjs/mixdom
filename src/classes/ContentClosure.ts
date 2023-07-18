@@ -222,7 +222,7 @@ export class ContentClosure {
         // Mark that they have updates.
         if (interested)
             for (const b of interested)
-                HostServices.preSetUpdates(b, { force: true });
+                b._forceUpdate = b._forceUpdate || true;
         // Set envelope.
         this.envelope = newEnvelope;
         // Mark all as pending.

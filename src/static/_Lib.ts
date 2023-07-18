@@ -18,7 +18,7 @@ import {
 // - Exports - //
 
 // Enums.
-/** For quick getting modes to depth for certain uses (Effect and DataPicker).
+/** For quick getting modes to depth for certain uses (Memo and DataPicker).
  * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
  * - Values are: "never" = -3, "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
 export enum MixDOMCompareDepth {

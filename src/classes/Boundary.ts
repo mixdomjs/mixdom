@@ -6,10 +6,11 @@ import {
     MixDOMTreeNode,
     MixDOMDefApplied,
     MixDOMDefTarget,
-    MixDOMComponentPreUpdates,
+    MixDOMComponentUpdates,
     MixDOMRenderOutput,
     MixDOMSourceBoundaryId,
     MixDOMDefBoundary,
+    Dictionary,
 } from "../static/_Types";
 import { SignalListener, SignalManFlags, callListeners } from "./SignalMan";
 import { _Defs } from "../static/_Defs";
@@ -149,8 +150,8 @@ export class SourceBoundary extends BaseBoundary {
 
     /** Temporary rendering state indicator. */
     _renderState?: "active" | "re-updated";
-    /** Temporary collection of preUpdates - as the update data are always executed immediately. */
-    _preUpdates?: MixDOMComponentPreUpdates;
+    /** If has marked to be force updated. */
+    _forceUpdate?: boolean | "all";
 
 
     // - Host related - //
@@ -251,7 +252,7 @@ export class SourceBoundary extends BaseBoundary {
         this.host.services.absorbUpdates(this, { force: !this.isMounted ? "all" : forceUpdate || false }, true, forceUpdateTimeout, forceRenderTimeout);
     }
 
-    updateBy(updates: MixDOMComponentPreUpdates, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null) {
+    updateBy(updates: MixDOMComponentUpdates, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null) {
         this.host.services.absorbUpdates(this, { ...updates, force: !this.isMounted ? "all" : forceUpdate || false }, true, forceUpdateTimeout, forceRenderTimeout);
     }
 
@@ -262,7 +263,7 @@ export class SourceBoundary extends BaseBoundary {
             this._renderState = "active";
         // Render.
         const component = this.component;
-        const content = component.render(this._outerDef.props || {}, component.state);
+        const content = component.render(component.props || {}, component.state);
         const reassign = typeof content === "function";
         // Reassign.
         if (reassign)

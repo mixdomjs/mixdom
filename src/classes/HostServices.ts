@@ -7,14 +7,13 @@ import {
     MixDOMSourceBoundaryChange,
     MixDOMRenderInfo,
     MixDOMSourceBoundaryId,
-    MixDOMComponentPreUpdates,
+    MixDOMComponentUpdates,
     MixDOMChangeInfos,
     MixDOMDefTarget,
     MixDOMRenderOutput,
-    MixDOMUpdateCompareModesBy,
     MixDOMUpdateCompareMode,
-    MixDOMComponentUpdates,
     NodeJSTimeout,
+    Dictionary,
 } from "../static/_Types";
 import { askListeners, callListeners } from "./SignalMan";
 import { MixDOMCompareDepth, _Lib } from "../static/_Lib";
@@ -166,12 +165,26 @@ export class HostServices {
      * - It applies the updates to bookkeeping immediately.
      * - The actual update procedure is either timed out or immediate according to settings.
      *   .. It's recommended to use a tiny update timeout (eg. 0ms) to group multiple updates together. */
-    public absorbUpdates(boundary: SourceBoundary, updates: MixDOMComponentPreUpdates, refresh: boolean = true, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void {
+    public absorbUpdates(boundary: SourceBoundary, updates: MixDOMComponentUpdates, refresh: boolean = true, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void {
         // Dead.
         if (boundary.isMounted === null)
             return;
-        // Update the bookkeeping.
-        HostServices.preSetUpdates(boundary, updates);
+        // Mark forced update.
+        if (updates.force)
+            boundary._forceUpdate = boundary._forceUpdate === "all" ? "all" : updates.force;
+        // Mark props. We put them on the outerDef, if used from this flow.
+        if (updates.props)
+            boundary._outerDef.props = updates.props;
+        // Update state.
+        if (updates.state) {
+            // Mark old state.
+            const component = boundary.component;
+            if (!component._lastState)
+                // Note. We set a readonly property here on purpose.
+                (component as { _lastState: Dictionary })._lastState = { ...component.state };
+            // Set new state.
+            component.state = updates.state;
+        }
         // Is rendering, re-render immediately, and go no further. No need to update timeout either.
         if (boundary._renderState) {
             boundary._renderState = "re-updated";
@@ -257,7 +270,7 @@ export class HostServices {
     }
 
     /** This is the core whole command to update a source boundary including checking if it should update and if has already been updated.
-     * - It handles the _preUpdates bookkeeping and should update checking and return infos for changes.
+     * - It handles the updates bookkeeping and should update checking and return infos for changes.
      * - It should only be called from a few places: 1. runUpdates flow above, 2. within _Apply.applyDefPairs for updating nested, 3. HostServices.updateInterested for updating indirectly interested sub boundaries.
      * - If gives bInterested, it's assumed to be be unordered, otherwise give areOrdered = true. */
     public updateBoundary(boundary: SourceBoundary, forceUpdate: boolean | "all" = false, movedNodes?: MixDOMTreeNode[], bInterested?: Set<SourceBoundary> | null): MixDOMChangeInfos | null {
@@ -269,99 +282,93 @@ export class HostServices {
         let boundaryChanges: MixDOMSourceBoundaryChange[] = [];
         const component = boundary.component;
 
-        // If is a wired component and it received props update, we should now rebuild its state very quickly.
-        const shadowAPI = component.constructor.api as ComponentShadowAPI & Partial<ComponentWiredAPI> | undefined;
-        if (shadowAPI && shadowAPI.getMixedProps && (boundary.isMounted === false || boundary._preUpdates?.props)) {
-            // Make sure build has run once.
-            if (!boundary.isMounted) {
-                if (shadowAPI.onBuildProps && !shadowAPI.builtProps)
-                    shadowAPI.builtProps = shadowAPI.onBuildProps(null);
-            }
-            // Mark _preUpdates (needed if not on mount run) and do a quick update.
-            else
-                boundary._preUpdates ? boundary._preUpdates.state = component.state : boundary._preUpdates = { state: component.state };
-            // Update state.
-            component.state = shadowAPI.getMixedProps(component);
-        }
-
         // Prepare mount run.
-        if (!boundary.isMounted) {
-            // Has been destroyed - shouldn't happen.
+        const mountRun = !boundary.isMounted;
+        if (mountRun) {
+            // Has been destroyed - shouldn't happen. Stop right here. (Perhaps should update interested, if given..?)
             if (boundary.isMounted === null)
                 return null;
             // On mount.
             boundaryChanges.push( [boundary, "mounted"] );
             shouldUpdate = true;
-            // Just in case.
-            if (boundary._preUpdates)
-                delete boundary._preUpdates;
         }
 
-        // Prepare update run.
-        else {
-            
-            // Call beforeUpdate.
-            // .. Note. If the state is modified during the call, it will add to _preUpdates and stop.
-            // .. This makes it a perfect place to use effects - however they can also be used during the render call (then will call render again).
-            if (component.signals.beforeUpdate)
-                callListeners(component.signals.beforeUpdate);
+        // Update props.
+        const prevProps = boundary._outerDef.props !== component.props ? component.props || {} : undefined;
+        if (prevProps)
+            (component as any as { props: Dictionary }).props = boundary._outerDef.props; // Note. We set a readonly property here.
 
-            // Clear.
-            const _preUpdates = boundary._preUpdates;
-            delete boundary._preUpdates;
+        // If is a wired component and it received props update, we should now rebuild its state very quickly.
+        const shadowAPI = component.constructor.api as ComponentShadowAPI & Partial<ComponentWiredAPI> | undefined;
+        if (shadowAPI && (mountRun || prevProps)) {
+            // On mount run - make sure build has run once.
+            if (mountRun && shadowAPI.onBuildProps && !shadowAPI.builtProps)
+                shadowAPI.builtProps = shadowAPI.onBuildProps(null);
+            // Set the state by mixed props.
+            if (shadowAPI.getMixedProps) {
+                // Normal run - mark that state will change.
+                if (!mountRun && !component._lastState)
+                    // Note. We set a readonly property here.
+                    (component as { _lastState: Dictionary })._lastState = { ...component.state };
+                // Update state.
+                component.state = shadowAPI.getMixedProps(component);
+            }
+        }
 
-            // Has already been updated.
-            if (!_preUpdates) {
-                if (!forceUpdate)
-                    return null;
-            }
+        // Call beforeUpdate.
+        // .. Note. If the state is modified during the call, it will add to the changes and stop.
+        // .. This makes it a perfect place to use memos - however they can also be used during the render call (then will call render again).
+        if (!mountRun && component.signals.beforeUpdate)
+            callListeners(component.signals.beforeUpdate);
+        
+        // Clear force update.
+        if (boundary._forceUpdate) {
+            if (boundary._forceUpdate === "all")
+                forceNested = true;
+            shouldUpdate = true;
+            delete boundary._forceUpdate;
+        }
+
+        // Perform update run.
+        if (!mountRun) {
             
-            // Prepare.
-            const { force, ..._newUpdates } = _preUpdates || {};
-            const prevUpdates: MixDOMComponentUpdates = _newUpdates; // We need this extra only for typing below.
-            const newUpdates: MixDOMComponentUpdates = {};
-            // Handle props.
-            if (prevUpdates.props)
-                newUpdates.props = boundary._outerDef.props;
-            // State.
-            if (prevUpdates.state)
-                newUpdates.state = component.state || {};
-            // Update flags.
-            if (force) {
-                shouldUpdate = true;
-                if (force === "all")
-                    forceNested = true;
-            }
-            // Check if should update.
-            else if (!shouldUpdate) {
-                // Run shouldUpdate check for live / easy.
-                const preShould: boolean | null = component.signals.shouldUpdate ? askListeners(component.signals.shouldUpdate, [component, newUpdates, prevUpdates], ["first-true", "no-false"]) : null;
-                // Run by background system.
-                if (preShould === true || preShould == null && HostServices.shouldUpdateBy(boundary, newUpdates, prevUpdates))
-                    shouldUpdate = true;
-            }
-            // Set call mode.
-            const wasMoved = boundary._outerDef.action === "moved";
-            if (wasMoved)
-                boundaryChanges.push([boundary, "moved"]);
-            if (shouldUpdate)
-                boundaryChanges.push([boundary, "updated", newUpdates, prevUpdates]);
-            // Was moved.
-            if (wasMoved) {
-                // For clarity and robustness, we collect the render infos here for move, as we collect the boundary for move here, too.
-                // .. However, to support the flow of .applyDefPairs we also support an optional .movedNodes array to prevent doubles.
-                for (const node of _Find.rootDOMTreeNodes(boundary.treeNode, true, true)) {
-                    if (movedNodes) {
-                        if (movedNodes.indexOf(node) !== -1)
-                            continue;
-                        movedNodes.push(node);
-                    }
-                    renderInfos.push({ treeNode: node, move: true });
+            // Read and clear state.
+            const prevState = component._lastState;
+            delete (component as any as { _lastState?: Dictionary })._lastState; // Note. We unset a readonly property here.
+
+            // Run unless has already been updated.
+            if (shouldUpdate || prevProps || prevState) {
+                // Check if should update.
+                if (!shouldUpdate) {
+                    // Run shouldUpdate check.
+                    const preShould: boolean | null = component.signals.shouldUpdate ? askListeners(component.signals.shouldUpdate, [component, prevProps, prevState], ["first-true", "no-false"]) : null;
+                    // Run by background system.
+                    if (preShould === true || preShould == null && HostServices.shouldUpdateBy(boundary, prevProps, prevState))
+                        shouldUpdate = true;
                 }
+                // Set call mode.
+                const wasMoved = boundary._outerDef.action === "moved";
+                if (wasMoved)
+                    boundaryChanges.push([boundary, "moved"]);
+                if (shouldUpdate)
+                    boundaryChanges.push([boundary, "updated", prevProps, prevState]);
+                // Was moved.
+                if (wasMoved) {
+                    // For clarity and robustness, we collect the render infos here for move, as we collect the boundary for move here, too.
+                    // .. However, to support the flow of .applyDefPairs we also support an optional .movedNodes array to prevent doubles.
+                    for (const node of _Find.rootDOMTreeNodes(boundary.treeNode, true, true)) {
+                        if (movedNodes) {
+                            if (movedNodes.indexOf(node) !== -1)
+                                continue;
+                            movedNodes.push(node);
+                        }
+                        renderInfos.push({ treeNode: node, move: true });
+                    }
+                }
+                // Call preUpdate to provide a snapshot of the situation - regardless of whether actually will update or not.
+                if (component.signals.preUpdate)
+                    callListeners(component.signals.preUpdate, [prevProps, prevState, shouldUpdate]);
             }
-            // Call preUpdate to provide a snapshot of the situation - regardless of whether actually will update or not.
-            if (component.signals.preUpdate)
-                callListeners(component.signals.preUpdate, [newUpdates, prevUpdates, shouldUpdate]);
         }
 
         // Run the update routine.
@@ -384,7 +391,8 @@ export class HostServices {
                     if (propsWere === Wired.api.builtProps)
                         continue;
                     // 
-                    // .. Maybe this is a bit confusing feature..? Because if doesn't have to callback will and should flow thru.
+                    // <-- Maybe this is a bit confusing feature..? Because if doesn't have the callback will and should flow thru. Well..
+
                 }
                 // Update state for each manually.
                 if (Wired.api.components.size) {
@@ -393,11 +401,7 @@ export class HostServices {
                         bInterested = new Set();
                     // Preset and add each.
                     for (const wired of Wired.api.components) {
-                        // Pre mark updates.
-                        // .. Note. To avoid rare extra calls to the mixer (when both props and state have changed), we don't use { state: Wired.api.getMixedProps(wired) } here.
-                        // .. Instead we just re-trigger update using (same) props, and then it will be handled above for the instance.
-                        HostServices.preSetUpdates(wired.boundary, { props: wired.props });
-                        // Add to interested.
+                        wired.boundary._outerDef.props = {...wired.boundary._outerDef.props}; // Take a shallow copy to trigger props change.
                         bInterested.add(wired.boundary);
                     }
                 }
@@ -479,34 +483,6 @@ export class HostServices {
 
     // - Static - //
 
-    /** Whenever a change happens, we want the states to be immediately updated (for clearer and more flexible behaviour).
-     * To do this, we need to set them immediately and at the same time collect old info (unless had old collected already). */
-    public static preSetUpdates(boundary: SourceBoundary, updates: MixDOMComponentPreUpdates): void {
-        // Prepare.
-        const component = boundary.component;
-        let preUpdates = boundary._preUpdates;
-        if (!preUpdates)
-            boundary._preUpdates = (preUpdates = {});
-        // Update new values and preUpdates.
-        // .. Props.
-        if (updates.props) {
-            if (!preUpdates.props)
-                preUpdates.props = boundary._outerDef.props || {};
-            boundary._outerDef.props = updates.props;
-            // We set a readonly value here (props) - it's on purpose: we want it to be readonly for all others except in this method.
-            (component as { props: MixDOMComponentPreUpdates["props"]; }).props = updates.props;
-        }
-        // .. State.
-        if (updates.state) {
-            if (!preUpdates.state)
-                preUpdates.state = component.state;
-            component.state = updates.state;
-        }
-        // .. Force update mode.
-        if (updates.force)
-            preUpdates.force = ((updates.force === "all") || (preUpdates.force === "all")) ? "all" : true;
-    }
-
     public static updateInterested(bInterested: Set<SourceBoundary>, sortBefore: boolean = true): MixDOMChangeInfos {
         // Prepare return.
         let renderInfos: MixDOMRenderInfo[] = [];
@@ -517,7 +493,7 @@ export class HostServices {
         // Update each - if still needs to be updated (when the call comes).
         for (const thruBoundary of bInterested) {
             // Was already updated.
-            if (!thruBoundary._preUpdates)
+            if (!thruBoundary._forceUpdate && !thruBoundary.component._lastState && thruBoundary.component.props === thruBoundary._outerDef.props)
                 continue;
             // Update and collect.
             const uInfos = thruBoundary.host.services.updateBoundary(thruBoundary);
@@ -530,41 +506,29 @@ export class HostServices {
         return [ renderInfos, boundaryChanges ];
     }
 
-    public static shouldUpdateBy(boundary: SourceBoundary, newUpdates: MixDOMComponentUpdates, preUpdates: MixDOMComponentUpdates | null): boolean {
+    public static shouldUpdateBy(boundary: SourceBoundary, prevProps: Dictionary | undefined, prevState: Dictionary | undefined): boolean {
         // Prepare.
-        const settings = boundary.host.settings;
         const component = boundary.component;
-        const modes: Partial<MixDOMUpdateCompareModesBy> = component.updateModes || {};
-        // Get modes from ComponentShadowAPI.
-        if (component.constructor.api) {
-            const sModes = component.constructor.api.updateModes;
-            if (sModes) {
-                for (const type in sModes)
-                    if (modes[type] === undefined)
-                        modes[type] = sModes[type];
-            }
-        }
-        // If anything tells us to update, we do the update: so can return true from within, but not false.
-        if (preUpdates) {
-            for (const type in preUpdates) {
-                // Prepare.
-                const mode: MixDOMUpdateCompareMode | number = modes[type] ?? settings.updateComponentModes[type];
-                const nMode = typeof mode === "number" ? mode : MixDOMCompareDepth[mode] as number ?? 0;
-                // Always or never.
-                if (nMode < -1) {
-                    if (nMode === -2)
-                        return true;
-                    continue;
-                }
-                // Changed.
-                if (nMode === 0) {
-                    if (preUpdates[type] !== newUpdates[type])
-                        return true;
-                }
-                // Otherwise use the library method.
-                else if (!_Lib.areEqual(preUpdates[type], newUpdates[type], nMode))
+        const settingsUpdateModes = boundary.host.settings.updateComponentModes;
+        const shadowUpdateModes = component.constructor.api?.updateModes;
+        const types: Array<"props" | "state"> = prevProps && prevState ? [ "props", "state" ] : prevProps ? ["props"] : prevState ? ["state"] : [];
+        // Loop changed.
+        for (const type of types) {
+            // Prepare.
+            const mode: MixDOMUpdateCompareMode | number = (component.updateModes && component.updateModes[type]) ?? (shadowUpdateModes && shadowUpdateModes[type]) ?? settingsUpdateModes[type];
+            const nMode = typeof mode === "number" ? mode : MixDOMCompareDepth[mode] as number || 0;
+            // Always or never.
+            if (nMode < -1) {
+                if (nMode === -2)
                     return true;
+                continue;
             }
+            // Changed. We know there's change, because we're looping the type - see above.
+            if (nMode === 0)
+                return true;
+            // Otherwise use the library method.
+            if (!_Lib.areEqual(type === "state" ? prevState : prevProps, component[type], nMode))
+                return true;
         }
         // No reason to update.
         return false;
@@ -572,7 +536,7 @@ export class HostServices {
 
 
     // - Private helpers - //
-    
+
     /** Get callbacks by a property and delete the member and call each. */
     private callAndClear(property: string) {
         const calls = this[property] as Array<() => void>;
@@ -585,12 +549,12 @@ export class HostServices {
         // Loop each.
         for (const info of boundaryChanges) {
             // Parse.
-            const [ boundary, change, myUpdates, myPrevUpdates ] = info;
+            const [ boundary, change, prevProps, prevState ] = info;
             const component = boundary.component;
             const signalName: "didUpdate" | "didMount" | "didMove" = change === "mounted" ? "didMount" : change === "moved" ? "didMove" : "didUpdate";
             // Call the component. Pre-check here some common cases to not need to call.
             if (component.signals[signalName])
-                callListeners(component.signals[signalName], change === "updated" ? [myUpdates || {}, myPrevUpdates || {}] : undefined);
+                callListeners(component.signals[signalName], change === "updated" ? [prevProps, prevState] : undefined);
         }
     }
     

@@ -49,7 +49,7 @@ import {
 import { createWired } from "./classes/ComponentWired";
 import { createStream } from "./classes/ComponentStream";
 import { newRef, Ref } from "./classes/Ref";
-import { newEffect, Effect, EffectMixin } from "./addons/Effect";
+import { newMemo, Memo, MemoMixin } from "./addons/Memo";
 import { createDataPicker, createDataSelector } from "./addons/DataPicker";
 import { createShadow, createShadowWith } from "./classes/ComponentShadow";
 import { SignalMan, SignalManMixin } from "./classes/SignalMan";
@@ -163,7 +163,7 @@ export const MixDOM = {
     copyContent: _Defs.newContentCopyDef,
 
     // Enums.
-    /** For quick getting modes to depth for certain uses (Effect and DataPicker).
+    /** For quick getting modes to depth for certain uses (Memo and DataPicker).
      * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
      * - Values are: "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
     CompareDepthByMode: MixDOMCompareDepth,
@@ -213,8 +213,8 @@ export const MixDOM = {
     Ref,
 
     // Addon classes.
-    Effect,
-    EffectMixin,
+    Memo,
+    MemoMixin,
 
 
     // - Pseudo classes - //
@@ -239,9 +239,9 @@ export const MixDOM = {
      *     * And it only adds the 2 public members (Content and ContentCopy) and 2 public methods (copycontent and withContent).
      *     * Due to not actually being a stream, it will never be used as a stream. It's just a straw dog.
      * - If you need to distinguish between real and fake, use `isStream()` method. The empty returns false.
-     *     * For example, to set specific content listening needs, you can use an effect - run it on render or .onBeforeUpdate callback.
-     *     * on effect mount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
-     *     * on effect unmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
+     *     * For example, to set specific content listening needs, you can use a memo - run it on render or .onBeforeUpdate callback.
+     *     * Memo onMount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
+     *     * MEmo onUnmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
      */
     EmptyStream: PseudoEmptyStream,
 
@@ -256,8 +256,8 @@ export const MixDOM = {
     newContexts,
     /** Create a Ref instance. */
     newRef,
-    /** Create an Effect instance. */
-    newEffect,
+    /** Create an Memo instance. */
+    newMemo,
 
 
     // - Create components - //
@@ -379,7 +379,7 @@ export const MixDOM = {
 
     // - Helper functions - //
 
-    /** Create a data picker (returns a function): It's like Effect but for data with an intermediary extractor.
+    /** Create a data picker (returns a function): It's like Memo but for data with an intermediary extractor.
      * - Give an extractor that extracts an array out of your customly defined arguments.
      * - Whenever the extracted output has changed (in shallow sense by default), the selector will be run.
      * - The arguments of the selector is the extracted array spread out, and it should return the output data solely based on them.

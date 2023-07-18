@@ -214,10 +214,11 @@ export const createStream = (): ComponentStreamType =>
             if (count < 2)
                 return count && [...sources][0] || null;
             // By importance.
+            // .. Note. We use stream.boundary._outerDef.props (as opposed to stream.props) to get the freshest situation.
             let importance = -Infinity;
             let source: ComponentStream | null = null;
             for (const stream of sources) {
-                const i = (stream.props as ComponentStreamProps).importance || 0;
+                const i = (stream.boundary._outerDef.props as ComponentStreamProps).importance || 0;
                 if (i > importance) {
                     source = stream;
                     importance = i;
@@ -225,7 +226,7 @@ export const createStream = (): ComponentStreamType =>
                 }
             }
             // Choose the 
-            return preferCurrent && importance === _Stream.source?.props.importance && _Stream.source || source;
+            return preferCurrent && importance === (_Stream.source?.boundary._outerDef.props as ComponentStreamProps).importance && _Stream.source || source;
         }
 
         /** Returns info for removal and additions.
@@ -234,8 +235,9 @@ export const createStream = (): ComponentStreamType =>
          *   * This is to avoid rare bugs from arising, eg: in MixDOMRender marking external elements is host based. */
         public static reattachSourceBy(source: ComponentStream): MixDOMChangeInfos | null {
             // Same source, or cannot hijack forcibly.
+            // .. Note. We use source.boundary._outerDef.props (as opposed to stream.props) to get the freshest situation.
             const oldSource = _Stream.source;
-            if (oldSource === source || ((source.props.importance || 0) <= (oldSource ? oldSource.props.importance || 0 : -Infinity)))
+            if (oldSource === source || (((source.boundary._outerDef.props as ComponentStreamProps).importance || 0) <= (oldSource ? (oldSource.boundary._outerDef.props as ComponentStreamProps).importance || 0 : -Infinity)))
                 return null;
             // Get changes.
             let infos: MixDOMChangeInfos | null = null;
@@ -331,8 +333,8 @@ export const createStream = (): ComponentStreamType =>
 //      * Like always, this is done via contentAPI, but with the getFor(Stream, ...) method.
 //  - When you have stable access to the stream, it's relatively straightforward: just use contentApi.getFor(MyStream) to get the children or .needsFor to mark the needs.
 //      * As normally, using the getFor method also by default marks the "temp" needs to the contentAPI's bookkeeping.
-//  - If you don't have stable access, you should use an effect and run it when the stream has changed (eg. in state.PopupStream).
-//      * The effect's mount part should set the needs, eg. `contentAPI.needsFor(MyStream, true)`, and the unmount part unset them `.needsFor(MyStream, null)`.
+//  - If you don't have stable access, you should use a memo and run it when the stream has changed (eg. in state.PopupStream).
+//      * The memo's mount part should set the needs, eg. `contentAPI.needsFor(MyStream, true)`, and the unmount part unset them `.needsFor(MyStream, null)`.
 //      * If you have EmptyStreams in the flow you can use `MyStream.isStream()` method to tell which is a real stream. The ContentAPI methods also use it internally.
 //  - Note that normally you never need to assign specific needs.
 //      * You can just insert the content by `MyStream.Content`, or use a wrapper that auto-sets needs: `MyStream.withContent(...)` or to handle each kid with auto needs `contentAPI.getFor(MyStream)`.
@@ -344,7 +346,7 @@ export const createStream = (): ComponentStreamType =>
 // .. The ContextStreams concept was dropped as you can achieve the same ends via sharing the stream through context data.
 // .. As the idea below shows, it required relatively lot of technical additions in many parts of code (minified to about 3kb), also related to typing.
 // .... In addition, swapping elements fluently in the render scope using ContextStreams did not work in the original v3.0.0: instead it unmounted and mounted them. (It works for normal Streams.)
-// .... The only real drawback of not having ContextStreams is that if you ever need to specifically set needs to a stream, you should use an effect. However, it's extremely rare to need to do this.
+// .... The only real drawback of not having ContextStreams is that if you ever need to specifically set needs to a stream, you should use a memo. However, it's extremely rare to need to do this.
 // .... Otherwise everything can be done in the normal flow (listenToData -> setState) taking maybe one or two lines of code more than would with ContextStreams. And fewer things to learn.
 //
 // I - BASICS:

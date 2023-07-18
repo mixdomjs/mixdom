@@ -11,7 +11,6 @@ import {
     MixDOMUpdateCompareModesBy,
     MixDOMTreeNodeType,
     MixDOMTreeNode,
-    MixDOMComponentPreUpdates,
     MixDOMUpdateCompareMode,
     ClassType,
     ClassMixer,
@@ -39,10 +38,11 @@ export type ComponentSignals<Info extends Partial<ComponentInfo> = {}> = {
     didMount: () => void;
     /** This is a callback that will always be called when the component is checked for updates.
      * - Note that this is not called on mount, but will be called everytime on update when it's time to check whether should update or not - regardless of whether will actually update.
-     * - This is the perfect place to use Effects to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state.
-     *   .. Note that you can also use effects on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
+     * - This is the perfect place to use Memos to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state (new props are set right before, and state read right after).
+     *   .. Note that you can also use Memos on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
     beforeUpdate: () => void;
     /** Callback to determine whether should update or not.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - If returns true, component will update. If false, will not.
      * - If returns null (or no onShouldUpdate method assigned), will use the rendering settings to determine.
      * - Note that this is not called every time necessarily (never on mount, and not if was forced).
@@ -50,22 +50,24 @@ export type ComponentSignals<Info extends Partial<ComponentInfo> = {}> = {
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before.
      * - Note that due to handling return value, emitting this particular signal is handled a bit differently. If any says true, will update, otherwise will not. */
     shouldUpdate: (
-        newUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>,
-        preUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>,
+        prevProps: Info["props"] | undefined,
+        prevState: Info["state"] | undefined,
     ) => boolean | null;
     /** This is a callback that will always be called when the component is checked for updates. Useful to get a snapshot of the situation.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - Note that this is not called on mount, but will be called everytime on update, even if will not actually update (use the 3rd param).
      * - Note that this will be called right after onShouldUpdate (if that is called) and right before the update happens.
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before. */
     preUpdate: (
-        newUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>,
-        preUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>,
+        prevProps: Info["props"] | undefined,
+        prevState: Info["state"] | undefined,
         willUpdate: boolean
     ) => void;
-    /** Called after the component has updated and changes been rendered into the dom. */
+    /** Called after the component has updated and changes been rendered into the dom.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it. */
     didUpdate: (
-        newUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>,
-        preUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>,
+        prevProps: Info["props"] | undefined,
+        prevState: Info["state"] | undefined,
     ) => void;
     /** Called when the component has moved in the tree structure. */
     didMove: () => void;
@@ -83,10 +85,11 @@ export type ComponentExternalSignals<Comp extends Component = Component> = {
     didMount: (component: Comp) => void;
     /** This is a callback that will always be called when the component is checked for updates.
      * - Note that this is not called on mount, but will be called everytime on update when it's time to check whether should update or not - regardless of whether will actually update.
-     * - This is the perfect place to use Effects to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state.
-     *   .. Note that you can also use effects on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
+     * - This is the perfect place to use Memos to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state.
+     *   .. Note that you can also use Memos on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
     beforeUpdate: (component: Comp) => void;
     /** Callback to determine whether should update or not.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - If returns true, component will update. If false, will not.
      * - If returns null (or no onShouldUpdate method assigned), will use the rendering settings to determine.
      * - Note that this is not called every time necessarily (never on mount, and not if was forced).
@@ -94,22 +97,25 @@ export type ComponentExternalSignals<Comp extends Component = Component> = {
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before.
      * - Note that due to handling return value, emitting this particular signal is handled a bit differently. If any says true, will update, otherwise will not. */
     shouldUpdate: (component: Comp,
-        newUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {props: {}})["props"], (Comp["constructor"]["_Info"] & {state: {}})["state"]>,
-        preUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {props: {}})["props"], (Comp["constructor"]["_Info"] & {state: {}})["state"]>,
+        prevProps: (Comp["constructor"]["_Info"] & {props?: {}})["props"],
+        prevState: (Comp["constructor"]["_Info"] & {state?: {}})["state"]
     ) => boolean | null;
     /** This is a callback that will always be called when the component is checked for updates. Useful to get a snapshot of the situation.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - Note that this is not called on mount, but will be called everytime on update, even if will not actually update (use the 3rd param).
      * - Note that this will be called right after onShouldUpdate (if that is called) and right before the update happens.
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before. */
     preUpdate: (component: Comp,
-        newUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {props: {}})["props"], (Comp["constructor"]["_Info"] & {state: {}})["state"]>,
-        preUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {props: {}})["props"], (Comp["constructor"]["_Info"] & {state: {}})["state"]>,
+        prevProps: (Comp["constructor"]["_Info"] & {props?: {}})["props"],
+        prevState: (Comp["constructor"]["_Info"] & {state?: {}})["state"],
         willUpdate: boolean
     ) => void;
-    /** Called after the component has updated and changes been rendered into the dom. */
+    /** Called after the component has updated and changes been rendered into the dom.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
+     */
     didUpdate: (component: Comp,
-        newUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {props: {}})["props"], (Comp["constructor"]["_Info"] & {state: {}})["state"]>,
-        preUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {props: {}})["props"], (Comp["constructor"]["_Info"] & {state: {}})["state"]>,
+        prevProps: (Comp["constructor"]["_Info"] & {props?: {}})["props"],
+        prevState: (Comp["constructor"]["_Info"] & {state?: {}})["state"],
     ) => void;
     /** Called when the component has moved in the tree structure. */
     didMove: (component: Comp) => void;
@@ -194,6 +200,7 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
 
         public readonly boundary: SourceBoundary;
         public readonly props: Props;
+        public readonly _lastState?: State;
         public state: State;
         public updateModes: Partial<MixDOMUpdateCompareModesBy>;
         public constantProps?: Partial<Record<keyof Props, MixDOMUpdateCompareMode | number | true>>;
@@ -238,6 +245,10 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
 
         public isMounted(): boolean {
             return this.boundary.isMounted === true;
+        }
+
+        public getLastState(fallbackToCurrent: boolean = true): State | null {
+            return this._lastState || fallbackToCurrent && this.state || null;
         }
 
         public getHost<Contexts extends MixDOMContextsAll = Info["contexts"] & {}>(): Host<Contexts> {
@@ -314,7 +325,7 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
 
         public setUpdateModes(modes: Partial<MixDOMUpdateCompareModesBy>, extend: boolean = true): void {
             // Reset.
-            if (!extend)
+            if (!extend || !this.updateModes)
                 this.updateModes = {};
             // Extend.
             for (const type in modes)
@@ -342,18 +353,12 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
                 delete this.constantProps;
         }
 
-        public setState(newState: Pick<State, keyof State> | State, extend: boolean = true, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void {
-            // Combine state.
-            const state = extend ? { ...this.state, ...newState } as State : newState;
-            // Update.
-            this.boundary.updateBy({ state } as MixDOMComponentPreUpdates, forceUpdate, forceUpdateTimeout, forceRenderTimeout);
+        public setState(newState: Pick<State, keyof State> | State, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void {
+            this.boundary.updateBy({ state: { ...this.state, ...newState } as State }, forceUpdate, forceUpdateTimeout, forceRenderTimeout);
         }
 
         public setInState(property: keyof State, value: any, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void {
-            // Get new state.
-            const state = { ...(this.state || {}), [property]: value } as State;
-            // Update.
-            this.boundary.updateBy({ state } as MixDOMComponentPreUpdates, forceUpdate, forceUpdateTimeout, forceRenderTimeout);
+            this.boundary.updateBy({ state: { ...this.state, [property]: value } }, forceUpdate, forceUpdateTimeout, forceRenderTimeout);
         }
 
         public triggerUpdate(forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void {
@@ -384,7 +389,7 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
 
         // - Render - //
 
-        public render(_props: Props, _state: State): MixDOMRenderOutput | MixDOMDoubleRenderer & MixDOMDoubleRenderer<Props, State> { return null; }
+        public render(_props: Props, _lastState: State): MixDOMRenderOutput | MixDOMDoubleRenderer & MixDOMDoubleRenderer<Props, State> { return null; }
 
     }
 }
@@ -397,7 +402,6 @@ function _ComponentMixin<Info extends Partial<ComponentInfo> = {}, Props extends
  * - Note that the Info["class"] only works for functional components. In class form, you simply extend the class or mixin with a custom class or mixin.
  */
 export const ComponentMixin = _ComponentMixin as unknown as ClassMixer<ComponentType>;
-
 
 // - Class - //
 
@@ -417,7 +421,9 @@ export interface Component<
 
     /** Fresh props from the parent. */
     readonly props: Props;
-    /** Locally defined state. When it's changed, the component will typically update and then re-render if needed. */
+    /** If the state has changed since last render, this contains the previous state. */
+    readonly _lastState?: State;
+    /** Locally defined state. When state is updated (through setState or setInState), the component will be checked for updates and then re-render if needed. */
     state: State;
     /** Map of the timers by id, the value is the reference for cancelling the timer. Only appears here if uses timers. */
     timers?: Map<Info["timers"] & {}, number | NodeJSTimeout>;
@@ -452,6 +458,11 @@ export interface Component<
 
     /** Whether this component has mounted. If false, then has not yet mounted or has been destroyed. */
     isMounted(): boolean;
+    /** This gets the state that was used during last render call, and by default falls back to the current state.
+     * - Most often you want to deal with the new state (= `this.state`), but this is useful in cases where you want to refer to what has been rendered. 
+     * - You can also access the previous state by `this._lastState`. If it's undefined, there hasn't been any changes in the state since last render. */
+    getLastState(fallbackToCurrent?: true): State;
+    getLastState(fallbackToCurrent?: boolean): State | null;
     /** Gets the rendering host that this component belongs to. By default uses the same Contexts typing as in the component's info, but can provide custom Contexts here too. */
     getHost<Contexts extends MixDOMContextsAll = Info["contexts"] & {}>(): Host<Contexts>;
     /** Get the first dom element within by a selectors within the host (like document.querySelector). Should rarely be used, but it's here if needed. */
@@ -492,9 +503,9 @@ export interface Component<
     /** Trigger an update manually. Normally you never need to use this. Can optionally define update related timing */
     triggerUpdate(forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     // State.
-    /** Set the whole state (or partial with extend set to true). Can optionally define update related timing. */
-    setState<Key extends keyof State>(newState: Pick<State, Key> | State, extend?: boolean | true, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
-    setState(newState: State, extend?: false, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
+    /** Set many properties in the state at once. Can optionally define update related timing. */
+    setState<Key extends keyof State>(partialState: Pick<State, Key> | State, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
+    setState(newState: State, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     /** Set one property in the state with typing support. Can optionally define update related timing. */
     setInState<Key extends keyof State>(property: Key, value: State[Key], forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     
@@ -566,6 +577,7 @@ export interface ComponentType<Info extends Partial<ComponentInfo> = {}> {
     new (props: Info["props"] & {}, boundary?: SourceBoundary): Component<Info>;
 
     // Typing info.
+    /** This is only provided for typing related technical reasons. There's no actual _Info member on the javascript side. */
     _Info?: Info;
 }
 export interface ComponentTypeOf<
@@ -602,7 +614,7 @@ export type ExtendComponentInfoWith<Info extends Partial<ComponentInfo>, Comp ex
 // - Function types - //
 
 // Common declarations.
-/** This declares a ComponentFunc by <Info>. */
+/** This declares a ComponentFunc by ComponentInfo. */
 export type ComponentFunc<Info extends Partial<ComponentInfo> = {}> = 
     // ((initProps: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"]) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };
     ((initProps: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & { _Info?: Info; };

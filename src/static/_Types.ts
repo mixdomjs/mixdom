@@ -412,11 +412,6 @@ export type MixDOMRenderOutput = MixDOMRenderOutputSingle | MixDOMRenderOutputMu
 export interface MixDOMComponentUpdates<Props extends Dictionary = {}, State = {}> {
     props?: Props;
     state?: State;
-}
-
-export interface MixDOMComponentPreUpdates<Props extends Dictionary = {}, State = {}> {
-    props?: Props;
-    state?: State;
     force?: boolean | "all";
 }
 
@@ -505,7 +500,7 @@ export type MixDOMRenderInfo = MixDOMRenderInfoBoundary | MixDOMRenderInfoDOMLik
 
 /** This only includes the calls that can be made after the fact: onUnmount is called before (so not here). */
 export type MixDOMSourceBoundaryChangeType = "mounted" | "updated" | "moved";
-export type MixDOMSourceBoundaryChange = [ boundary: SourceBoundary, changeType: MixDOMSourceBoundaryChangeType, newUpdates?: (MixDOMComponentUpdates | null), prevUpdates?: (MixDOMComponentUpdates | null) ];
+export type MixDOMSourceBoundaryChange = [ boundary: SourceBoundary, changeType: MixDOMSourceBoundaryChangeType, prevProps?: Dictionary, prevState?: Dictionary ];
 export type MixDOMChangeInfos = [ MixDOMRenderInfo[], MixDOMSourceBoundaryChange[] ];
 
 

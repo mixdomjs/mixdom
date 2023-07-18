@@ -64,6 +64,9 @@ export class Context<Data = any, Signals extends SignalsRecord = any> extends Da
         this.contextAPIs =  new Map();
         this.settings = Context.getDefaultSettings();
         this.refreshTimer = null;
+        // Just for typing - to avoid warning about not having set _Signals.
+        this._Signals = undefined as unknown as Signals;
+        delete (this as any)._Signals;
         // Update settings.
         if (settings)
             this.modifySettings(settings);
@@ -200,7 +203,9 @@ export class Context<Data = any, Signals extends SignalsRecord = any> extends Da
 
     // - Typing - //
 
-    /** This is only provided for typing related technical reasons. There's no actual Signals object on the javascript side. */
+    /** This is only provided for typing related technical reasons. There's no actual _Signals member on the javascript side.
+     * - Note. Due to complex typing (related to ContextAPI having multiple contexts), we need to have it without undefined (_Signals? is not okay).
+     */
     _Signals: Signals;
 
 }

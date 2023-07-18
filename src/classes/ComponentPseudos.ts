@@ -94,9 +94,9 @@ export class PseudoEmpty<Props extends PseudoEmptyProps = PseudoEmptyProps> {
  *     * And it only adds the 2 public members (Content and ContentCopy) and 2 public methods (copycontent and withContent).
  *     * Due to not actually being a stream, it will never be used as a stream. It's just a straw dog.
  * - If you need to distinguish between real and fake, use `isStream()` method. The empty returns false.
- *     * For example, to set specific content listening needs, you can use an effect - run it on render or .onBeforeUpdate callback.
- *     * on effect mount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
- *     * on effect unmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
+ *     * For example, to set specific content listening needs, you can use a memo - run it on render or .onBeforeUpdate callback.
+ *     * Memo onMount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
+ *     * Memo onUnmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
  */
 export const PseudoEmptyStream = class extends PseudoEmpty<ComponentStreamProps> {
     public static Content: MixDOMDefTarget | null = null;

@@ -310,8 +310,6 @@ export const SignalManMixin = _SignalManMixin as ClassMixer<SignalManType>;
 export class SignalBoy<Signals extends SignalsRecord = {}> extends (_SignalBoyMixin(Object) as ClassType) { }
 export interface SignalBoy<Signals extends SignalsRecord = {}> { 
     
-    // _Signals: Signals;
-
     /** The stored signal connections. To emit signals use `sendSignal` and `sendSignalAs` methods. */
     signals: Record<string, Array<SignalListener>>;
 

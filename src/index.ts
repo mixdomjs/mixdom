@@ -73,7 +73,7 @@ export { ContextAPI, MixDOMContextsAll, MergeSignalsFromContexts, GetJoinedDataK
 export { Ref, newRef, RefSignals } from "./classes/Ref";
 
 // All addons.
-export { Effect, EffectMixin, newEffect } from "./addons/Effect";
+export { Memo, MemoMixin, newMemo } from "./addons/Memo";
 export { createDataPicker, createDataSelector, CreateDataPicker, CreateDataSelector, DataExtractor } from "./addons/DataPicker";
 
 // All types - with JSX IntrinsicElements support.

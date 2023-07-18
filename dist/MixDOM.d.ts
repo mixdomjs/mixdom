@@ -803,14 +803,14 @@ declare class HostServices {
      * - It applies the updates to bookkeeping immediately.
      * - The actual update procedure is either timed out or immediate according to settings.
      *   .. It's recommended to use a tiny update timeout (eg. 0ms) to group multiple updates together. */
-    absorbUpdates(boundary: SourceBoundary, updates: MixDOMComponentPreUpdates, refresh?: boolean, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
+    absorbUpdates(boundary: SourceBoundary, updates: MixDOMComponentUpdates, refresh?: boolean, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     /** This triggers the update cycle. */
     triggerUpdates(forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     /** This method should always be used when executing updates within a host - it's the main orchestrator of updates.
      * To add to post updates use the .absorbUpdates() method above. It triggers calling this with the assigned timeout, so many are handled together. */
     private runUpdates;
     /** This is the core whole command to update a source boundary including checking if it should update and if has already been updated.
-     * - It handles the _preUpdates bookkeeping and should update checking and return infos for changes.
+     * - It handles the updates bookkeeping and should update checking and return infos for changes.
      * - It should only be called from a few places: 1. runUpdates flow above, 2. within _Apply.applyDefPairs for updating nested, 3. HostServices.updateInterested for updating indirectly interested sub boundaries.
      * - If gives bInterested, it's assumed to be be unordered, otherwise give areOrdered = true. */
     updateBoundary(boundary: SourceBoundary, forceUpdate?: boolean | "all", movedNodes?: MixDOMTreeNode[], bInterested?: Set<SourceBoundary> | null): MixDOMChangeInfos | null;
@@ -818,11 +818,8 @@ declare class HostServices {
     absorbChanges(renderInfos: MixDOMRenderInfo[] | null, boundaryChanges?: MixDOMSourceBoundaryChange[] | null, forceRenderTimeout?: number | null): void;
     private runRender;
     private triggerRefreshFor;
-    /** Whenever a change happens, we want the states to be immediately updated (for clearer and more flexible behaviour).
-     * To do this, we need to set them immediately and at the same time collect old info (unless had old collected already). */
-    static preSetUpdates(boundary: SourceBoundary, updates: MixDOMComponentPreUpdates): void;
     static updateInterested(bInterested: Set<SourceBoundary>, sortBefore?: boolean): MixDOMChangeInfos;
-    static shouldUpdateBy(boundary: SourceBoundary, newUpdates: MixDOMComponentUpdates, preUpdates: MixDOMComponentUpdates | null): boolean;
+    static shouldUpdateBy(boundary: SourceBoundary, prevProps: Dictionary | undefined, prevState: Dictionary | undefined): boolean;
     /** Get callbacks by a property and delete the member and call each. */
     private callAndClear;
     private static callBoundariesBy;
@@ -970,7 +967,9 @@ declare class Context<Data = any, Signals extends SignalsRecord = any> extends D
     /** Update settings with a dictionary. If any value is `undefined` then uses the default setting. */
     modifySettings(settings: Partial<ContextSettings>): void;
     static getDefaultSettings(): ContextSettings;
-    /** This is only provided for typing related technical reasons. There's no actual Signals object on the javascript side. */
+    /** This is only provided for typing related technical reasons. There's no actual _Signals member on the javascript side.
+     * - Note. Due to complex typing (related to ContextAPI having multiple contexts), we need to have it without undefined (_Signals? is not okay).
+     */
     _Signals: Signals;
 }
 declare type ContextType<Data = any, Signals extends SignalsRecord = SignalsRecord> = ClassType<Context<Data, Signals>, [Data?, Partial<ContextSettings>?]> & {
@@ -1392,24 +1391,27 @@ declare type ComponentSignals<Info extends Partial<ComponentInfo> = {}> = {
     didMount: () => void;
     /** This is a callback that will always be called when the component is checked for updates.
      * - Note that this is not called on mount, but will be called everytime on update when it's time to check whether should update or not - regardless of whether will actually update.
-     * - This is the perfect place to use Effects to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state.
-     *   .. Note that you can also use effects on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
+     * - This is the perfect place to use Memos to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state (new props are set right before, and state read right after).
+     *   .. Note that you can also use Memos on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
     beforeUpdate: () => void;
     /** Callback to determine whether should update or not.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - If returns true, component will update. If false, will not.
      * - If returns null (or no onShouldUpdate method assigned), will use the rendering settings to determine.
      * - Note that this is not called every time necessarily (never on mount, and not if was forced).
      * - Note that this is called right before onPreUpdate and the actual update (if that happens).
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before.
      * - Note that due to handling return value, emitting this particular signal is handled a bit differently. If any says true, will update, otherwise will not. */
-    shouldUpdate: (newUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>, preUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>) => boolean | null;
+    shouldUpdate: (prevProps: Info["props"] | undefined, prevState: Info["state"] | undefined) => boolean | null;
     /** This is a callback that will always be called when the component is checked for updates. Useful to get a snapshot of the situation.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - Note that this is not called on mount, but will be called everytime on update, even if will not actually update (use the 3rd param).
      * - Note that this will be called right after onShouldUpdate (if that is called) and right before the update happens.
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before. */
-    preUpdate: (newUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>, preUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>, willUpdate: boolean) => void;
-    /** Called after the component has updated and changes been rendered into the dom. */
-    didUpdate: (newUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>, preUpdates: MixDOMComponentPreUpdates<Info["props"] & {}, Info["state"] & {}>) => void;
+    preUpdate: (prevProps: Info["props"] | undefined, prevState: Info["state"] | undefined, willUpdate: boolean) => void;
+    /** Called after the component has updated and changes been rendered into the dom.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it. */
+    didUpdate: (prevProps: Info["props"] | undefined, prevState: Info["state"] | undefined) => void;
     /** Called when the component has moved in the tree structure. */
     didMove: () => void;
     /** Called when the component is about to be ungrounded: removed from the tree and dom elements destroyed. */
@@ -1427,48 +1429,40 @@ declare type ComponentExternalSignals<Comp extends Component = Component> = {
     didMount: (component: Comp) => void;
     /** This is a callback that will always be called when the component is checked for updates.
      * - Note that this is not called on mount, but will be called everytime on update when it's time to check whether should update or not - regardless of whether will actually update.
-     * - This is the perfect place to use Effects to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state.
-     *   .. Note that you can also use effects on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
+     * - This is the perfect place to use Memos to, as you can modify the state immediately and the mods will be included in the current update run. Access the new values in component.props and component.state.
+     *   .. Note that you can also use Memos on the render scope. The only difference is that the render method will be called again immediately after (but likewise included in the same update run). */
     beforeUpdate: (component: Comp) => void;
     /** Callback to determine whether should update or not.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - If returns true, component will update. If false, will not.
      * - If returns null (or no onShouldUpdate method assigned), will use the rendering settings to determine.
      * - Note that this is not called every time necessarily (never on mount, and not if was forced).
      * - Note that this is called right before onPreUpdate and the actual update (if that happens).
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before.
      * - Note that due to handling return value, emitting this particular signal is handled a bit differently. If any says true, will update, otherwise will not. */
-    shouldUpdate: (component: Comp, newUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {
-        props: {};
-    })["props"], (Comp["constructor"]["_Info"] & {
-        state: {};
-    })["state"]>, preUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {
-        props: {};
-    })["props"], (Comp["constructor"]["_Info"] & {
-        state: {};
-    })["state"]>) => boolean | null;
+    shouldUpdate: (component: Comp, prevProps: (Comp["constructor"]["_Info"] & {
+        props?: {};
+    })["props"], prevState: (Comp["constructor"]["_Info"] & {
+        state?: {};
+    })["state"]) => boolean | null;
     /** This is a callback that will always be called when the component is checked for updates. Useful to get a snapshot of the situation.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
      * - Note that this is not called on mount, but will be called everytime on update, even if will not actually update (use the 3rd param).
      * - Note that this will be called right after onShouldUpdate (if that is called) and right before the update happens.
      * - Note that by this time all the data has been updated already. So use preUpdates to get what it was before. */
-    preUpdate: (component: Comp, newUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {
-        props: {};
-    })["props"], (Comp["constructor"]["_Info"] & {
-        state: {};
-    })["state"]>, preUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {
-        props: {};
-    })["props"], (Comp["constructor"]["_Info"] & {
-        state: {};
-    })["state"]>, willUpdate: boolean) => void;
-    /** Called after the component has updated and changes been rendered into the dom. */
-    didUpdate: (component: Comp, newUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {
-        props: {};
-    })["props"], (Comp["constructor"]["_Info"] & {
-        state: {};
-    })["state"]>, preUpdates: MixDOMComponentPreUpdates<(Comp["constructor"]["_Info"] & {
-        props: {};
-    })["props"], (Comp["constructor"]["_Info"] & {
-        state: {};
-    })["state"]>) => void;
+    preUpdate: (component: Comp, prevProps: (Comp["constructor"]["_Info"] & {
+        props?: {};
+    })["props"], prevState: (Comp["constructor"]["_Info"] & {
+        state?: {};
+    })["state"], willUpdate: boolean) => void;
+    /** Called after the component has updated and changes been rendered into the dom.
+     * - If there were no change in props, prevProps is undefined. Likewise prevState is undefined without changes in it.
+     */
+    didUpdate: (component: Comp, prevProps: (Comp["constructor"]["_Info"] & {
+        props?: {};
+    })["props"], prevState: (Comp["constructor"]["_Info"] & {
+        state?: {};
+    })["state"]) => void;
     /** Called when the component has moved in the tree structure. */
     didMove: (component: Comp) => void;
     /** Called when the component is about to be ungrounded: removed from the tree and dom elements destroyed. */
@@ -1530,6 +1524,7 @@ declare const Component_base: {
         constructor: ComponentType<{}>;
         readonly boundary: SourceBoundary;
         readonly props: {};
+        readonly _lastState?: {} | undefined;
         state: {};
         updateModes: Partial<MixDOMUpdateCompareModesBy>;
         constantProps?: Partial<Record<never, number | true | MixDOMUpdateCompareMode>> | undefined;
@@ -1539,6 +1534,7 @@ declare const Component_base: {
         /** This initializes the contextAPI instance (once). */
         initContextAPI(): void;
         isMounted(): boolean;
+        getLastState(fallbackToCurrent?: boolean): {} | null;
         getHost<Contexts extends MixDOMContextsAll = {}>(): Host<Contexts>;
         queryElement(selector: string, withinBoundaries?: boolean, overHosts?: boolean): Element | null;
         queryElements(selector: string, maxCount?: number, withinBoundaries?: boolean, overHosts?: boolean): Element[];
@@ -1552,12 +1548,12 @@ declare const Component_base: {
         clearTimers(onlyTimerIds?: any[] | undefined): void;
         setUpdateModes(modes: Partial<MixDOMUpdateCompareModesBy>, extend?: boolean): void;
         setConstantProps(constProps: never[] | Partial<Record<never, number | true | MixDOMUpdateCompareMode>> | null, extend?: boolean, overrideEach?: number | MixDOMUpdateCompareMode | null): void;
-        setState(newState: {} | Pick<{}, never>, extend?: boolean, forceUpdate?: boolean | "all" | undefined, forceUpdateTimeout?: number | null | undefined, forceRenderTimeout?: number | null | undefined): void;
+        setState(newState: {} | Pick<{}, never>, forceUpdate?: boolean | "all" | undefined, forceUpdateTimeout?: number | null | undefined, forceRenderTimeout?: number | null | undefined): void;
         setInState(property: never, value: any, forceUpdate?: boolean | "all" | undefined, forceUpdateTimeout?: number | null | undefined, forceRenderTimeout?: number | null | undefined): void;
         triggerUpdate(forceUpdate?: boolean | "all" | undefined, forceUpdateTimeout?: number | null | undefined, forceRenderTimeout?: number | null | undefined): void;
         createWired(...args: any[]): ComponentWiredType<{}, {}, {}> | ComponentWiredFunc<{}, {}, {}>;
         afterRefresh(renderSide?: boolean, forceUpdateTimeout?: number | null | undefined, forceRenderTimeout?: number | null | undefined): Promise<void>;
-        render(_props: {}, _state: {}): MixDOMRenderOutput | MixDOMDoubleRenderer<{}, {}>;
+        render(_props: {}, _lastState: {}): MixDOMRenderOutput | MixDOMDoubleRenderer<{}, {}>;
     };
     MIX_DOM_CLASS: string;
 };
@@ -1569,7 +1565,9 @@ declare class Component<Info extends Partial<ComponentInfo> = {}, Props extends 
 interface Component<Info extends Partial<ComponentInfo> = {}, Props extends Dictionary = NonNullable<Info["props"]>, State extends Dictionary = NonNullable<Info["state"]>> extends SignalMan<ComponentSignals<Info> & Info["signals"]> {
     /** Fresh props from the parent. */
     readonly props: Props;
-    /** Locally defined state. When it's changed, the component will typically update and then re-render if needed. */
+    /** If the state has changed since last render, this contains the previous state. */
+    readonly _lastState?: State;
+    /** Locally defined state. When state is updated (through setState or setInState), the component will be checked for updates and then re-render if needed. */
     state: State;
     /** Map of the timers by id, the value is the reference for cancelling the timer. Only appears here if uses timers. */
     timers?: Map<Info["timers"] & {}, number | NodeJSTimeout>;
@@ -1591,6 +1589,11 @@ interface Component<Info extends Partial<ComponentInfo> = {}, Props extends Dict
     afterRefresh(renderSide?: boolean, forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): Promise<void>;
     /** Whether this component has mounted. If false, then has not yet mounted or has been destroyed. */
     isMounted(): boolean;
+    /** This gets the state that was used during last render call, and by default falls back to the current state.
+     * - Most often you want to deal with the new state (= `this.state`), but this is useful in cases where you want to refer to what has been rendered.
+     * - You can also access the previous state by `this._lastState`. If it's undefined, there hasn't been any changes in the state since last render. */
+    getLastState(fallbackToCurrent?: true): State;
+    getLastState(fallbackToCurrent?: boolean): State | null;
     /** Gets the rendering host that this component belongs to. By default uses the same Contexts typing as in the component's info, but can provide custom Contexts here too. */
     getHost<Contexts extends MixDOMContextsAll = Info["contexts"] & {}>(): Host<Contexts>;
     /** Get the first dom element within by a selectors within the host (like document.querySelector). Should rarely be used, but it's here if needed. */
@@ -1621,9 +1624,9 @@ interface Component<Info extends Partial<ComponentInfo> = {}, Props extends Dict
     setConstantProps(constProps: Partial<Record<keyof Props, MixDOMUpdateCompareMode | number | true>> | (keyof Props)[] | null, extend?: boolean, overrideEach?: MixDOMUpdateCompareMode | number | null): void;
     /** Trigger an update manually. Normally you never need to use this. Can optionally define update related timing */
     triggerUpdate(forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
-    /** Set the whole state (or partial with extend set to true). Can optionally define update related timing. */
-    setState<Key extends keyof State>(newState: Pick<State, Key> | State, extend?: boolean | true, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
-    setState(newState: State, extend?: false, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
+    /** Set many properties in the state at once. Can optionally define update related timing. */
+    setState<Key extends keyof State>(partialState: Pick<State, Key> | State, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
+    setState(newState: State, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     /** Set one property in the state with typing support. Can optionally define update related timing. */
     setInState<Key extends keyof State>(property: Key, value: State[Key], forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     /** Creates a wired component (function) and attaches it to the .wired set for automatic updates.
@@ -1676,6 +1679,7 @@ interface ComponentType<Info extends Partial<ComponentInfo> = {}> {
     /** May feature a ComponentShadowAPI, it's put here to make typing easier. */
     api?: ComponentShadowAPI<Info>;
     new (props: Info["props"] & {}, boundary?: SourceBoundary): Component<Info>;
+    /** This is only provided for typing related technical reasons. There's no actual _Info member on the javascript side. */
     _Info?: Info;
 }
 interface ComponentTypeOf<Props extends Dictionary = {}, State extends Dictionary = {}, Class extends Dictionary = {}, Signals extends Dictionary<(...args: any[]) => any> = {}, Timers extends any = any, Contexts extends MixDOMContextsAll = {}> extends ComponentType<ComponentInfo<Props, State, Class, Signals, Timers, Contexts>> {
@@ -1704,7 +1708,7 @@ declare type GetComponentFuncInfo<Type extends (...args: any[]) => any | void> =
 declare type ExtendComponentInfoWith<Info extends Partial<ComponentInfo>, Comp extends ComponentTypeAny> = Info & ([Comp] extends [ComponentFunc] ? GetComponentFuncInfo<Comp> : [Comp] extends [SpreadFunc] ? {
     props: Parameters<Comp>[0];
 } : GetComponentInfo<Comp>);
-/** This declares a ComponentFunc by <Info>. */
+/** This declares a ComponentFunc by ComponentInfo. */
 declare type ComponentFunc<Info extends Partial<ComponentInfo> = {}> = ((initProps: MixDOMPreComponentOnlyProps<Info["signals"] & {}> & Info["props"], component: Component<Info> & Info["class"], contextAPI: ComponentContextAPI<Info["contexts"] & {}>) => MixDOMRenderOutput | MixDOMDoubleRenderer<Info["props"] & {}, Info["state"] & {}>) & {
     _Info?: Info;
 };
@@ -1784,8 +1788,8 @@ declare class SourceBoundary extends BaseBoundary {
     _outerDef: MixDOMDefApplied & MixDOMDefBoundary;
     /** Temporary rendering state indicator. */
     _renderState?: "active" | "re-updated";
-    /** Temporary collection of preUpdates - as the update data are always executed immediately. */
-    _preUpdates?: MixDOMComponentPreUpdates;
+    /** If has marked to be force updated. */
+    _forceUpdate?: boolean | "all";
     /** Our host based quick id. It's mainly used for sorting, and sometimes to detect whether is content or source boundary, helps in debugging too. */
     bId: MixDOMSourceBoundaryId;
     /** Shortcut for the component. Only one can be set (and typically one is). */
@@ -1798,7 +1802,7 @@ declare class SourceBoundary extends BaseBoundary {
     /** Should actually only be called once. Initializes a Component class and assigns renderer and so on. */
     reattach(): void;
     update(forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
-    updateBy(updates: MixDOMComponentPreUpdates, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
+    updateBy(updates: MixDOMComponentUpdates, forceUpdate?: boolean | "all", forceUpdateTimeout?: number | null, forceRenderTimeout?: number | null): void;
     render(iRecursion?: number): MixDOMRenderOutput;
 }
 
@@ -1919,9 +1923,9 @@ declare class PseudoEmpty<Props extends PseudoEmptyProps = PseudoEmptyProps> {
  *     * And it only adds the 2 public members (Content and ContentCopy) and 2 public methods (copycontent and withContent).
  *     * Due to not actually being a stream, it will never be used as a stream. It's just a straw dog.
  * - If you need to distinguish between real and fake, use `isStream()` method. The empty returns false.
- *     * For example, to set specific content listening needs, you can use an effect - run it on render or .onBeforeUpdate callback.
- *     * on effect mount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
- *     * on effect unmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
+ *     * For example, to set specific content listening needs, you can use a memo - run it on render or .onBeforeUpdate callback.
+ *     * Memo onMount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
+ *     * Memo onUnmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
  */
 declare const PseudoEmptyStream: ComponentStreamType;
 
@@ -2241,10 +2245,6 @@ declare type MixDOMRenderOutput = MixDOMRenderOutputSingle | MixDOMRenderOutputM
 interface MixDOMComponentUpdates<Props extends Dictionary = {}, State = {}> {
     props?: Props;
     state?: State;
-}
-interface MixDOMComponentPreUpdates<Props extends Dictionary = {}, State = {}> {
-    props?: Props;
-    state?: State;
     force?: boolean | "all";
 }
 /** Defines how often components should render after updates (how onShouldUpdate works).
@@ -2323,7 +2323,7 @@ interface MixDOMRenderInfoHost extends MixDOMRenderInfoBase {
 declare type MixDOMRenderInfo = MixDOMRenderInfoBoundary | MixDOMRenderInfoDOMLike | MixDOMRenderInfoHost;
 /** This only includes the calls that can be made after the fact: onUnmount is called before (so not here). */
 declare type MixDOMSourceBoundaryChangeType = "mounted" | "updated" | "moved";
-declare type MixDOMSourceBoundaryChange = [boundary: SourceBoundary, changeType: MixDOMSourceBoundaryChangeType, newUpdates?: (MixDOMComponentUpdates | null), prevUpdates?: (MixDOMComponentUpdates | null)];
+declare type MixDOMSourceBoundaryChange = [boundary: SourceBoundary, changeType: MixDOMSourceBoundaryChangeType, prevProps?: Dictionary, prevState?: Dictionary];
 declare type MixDOMChangeInfos = [MixDOMRenderInfo[], MixDOMSourceBoundaryChange[]];
 /** Describes what kind of def it is.
  * - Compared to treeNode.type, we have extra: "content" | "element" | "fragment". But don't have "root" (or ""). */
@@ -2690,7 +2690,7 @@ declare type CreateDataSelector<Params extends any[], Data extends any> = <Extra
     DataExtractor<Params>,
     DataExtractor<Params>
 ]>(extractors: Extractors, selector: (...args: ReturnTypes<Extractors>) => Data, depth?: number | MixDOMUpdateCompareMode) => (...args: Params) => Data;
-/** Create a data picker (returns a function): It's like Effect but for data with an intermediary extractor.
+/** Create a data picker (returns a function): It's like Memo but for data with an intermediary extractor.
  * - Give an extractor that extracts an array out of your customly defined arguments. Can return an array up to 10 typed members or more with `[...] as const` trick.
  * - Whenever the extracted output has changed (in shallow sense by default), the selector will be run.
  * - The arguments of the selector is the extracted array spread out, and it should return the output data solely based on them.
@@ -2702,61 +2702,61 @@ declare const createDataPicker: <Extracted extends readonly any[] | [any] | [any
  */
 declare const createDataSelector: <Extractors extends [DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>] | [DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>, DataExtractor<Params, any>], Data extends unknown, Params extends any[] = Parameters<Extractors[number]>>(extractors: Extractors, selector: (...args: ReturnTypes<Extractors>) => Data, depth?: number | MixDOMUpdateCompareMode) => (...args: Params) => Data;
 
-/** Effect to run when memory has changed (according to the comparison mode).
- * - If returns a new effect function, it will be run when unmounting the effect. */
-declare type EffectOnMount<Memory = any> = (newMem: Memory, prevMem: Memory | undefined) => void | EffectOnUnmount;
-declare type EffectOnUnmount<Memory = any> = (currentMem: Memory, nextMem: Memory, cancelled: boolean) => void;
-declare const Effect_base: {
-    new (effect?: EffectOnMount<any> | undefined, memory?: any, ...baseParams: any[]): {
+/** Memo callback to run when memory has changed (according to the comparison mode).
+ * - If returns a new callback function, it will be run when unmounting the callback. */
+declare type MemoOnMount<Memory = any> = (newMem: Memory, prevMem: Memory | undefined) => void | MemoOnUnmount;
+declare type MemoOnUnmount<Memory = any> = (currentMem: Memory, nextMem: Memory, cancelled: boolean) => void;
+declare const Memo_base: {
+    new (onMount?: MemoOnMount<any> | undefined, memory?: any, ...baseParams: any[]): {
         memory: any;
-        onMount: EffectOnMount<any> | null;
-        onUnmount: EffectOnUnmount<any> | null;
+        onMount: MemoOnMount<any> | null;
+        onUnmount: MemoOnUnmount<any> | null;
         depth: number;
         setDepth(depth?: number | MixDOMUpdateCompareMode | null | undefined): void;
-        reset(effect: EffectOnMount<any> | null, memory: any, forceRun?: boolean): boolean;
-        use(memory: any, forceRun?: boolean, newEffectIfChanged?: EffectOnMount<any> | null | undefined): boolean;
-        /** Cancel effect. */
-        cancel(runUnmount?: boolean, clearMemory?: boolean, clearEffect?: boolean): void;
+        reset(onMount: MemoOnMount<any> | null, memory: any, forceRun?: boolean): boolean;
+        use(memory: any, forceRun?: boolean, newOnMountIfChanged?: MemoOnMount<any> | null | undefined): boolean;
+        /** Cancel Unmount callback. */
+        cancel(runUnmount?: boolean, clearMemory?: boolean, clearCallbacks?: boolean): void;
     };
     MIX_DOM_CLASS: string;
 };
-interface Effect<Memory = any> {
+interface Memo<Memory = any> {
     /** The last store memory. */
     memory: Memory | undefined;
-    /** The effect to run, when has changed.
-     * - If returns a function, will replace the effect after (for the next time). */
-    onMount: EffectOnMount<Memory> | null;
+    /** The callback to run, when has changed.
+     * - If returns a function, will replace the unUnmount callback after (for the next time) - otherwise nullifies it. */
+    onMount: MemoOnMount<Memory> | null;
     /** This is automatically assigned by the return value of the onMount - if doesn't return a func, will assing to null. */
-    onUnmount: EffectOnUnmount<Memory> | null;
+    onUnmount: MemoOnUnmount<Memory> | null;
     /** Comparison mode to be used by default. (Defaults to 1, which is the same as "shallow".)
     * - If -1 depth, performs fully deep search. If depth <= -2, then is in "always" mode (doesn't even check). */
     depth: number;
-    /** Main function for using the effect.
-     * - Compares the memory against the old one and if changed, returns true and runs the effect.
-     * - If newEffectIfChanged provided, overrides the effect (only if was changed) right before calling the effect.
-     * - Note that you don't need to have an effect assigned at all: you can also use the returned boolean and run your "effect" inline. */
-    use(memory: this["memory"], forceRun?: boolean, newEffectIfChanged?: EffectOnMount<Memory> | null): boolean;
-    /** Alias for .use, that requires a function. (Do not use this, if you can reuse a function.)
+    /** Main function for using the memo.
+     * - Compares the memory against the old one and if changed, returns true and runs the callback.
+     * - If newOnMountIfChanged provided, overrides the callback (only if was changed) right before calling it.
+     * - Note that you don't need to have an callback assigned at all: you can also use the returned boolean and run your callback inline. */
+    use(memory: this["memory"], forceRun?: boolean, newOnMountIfChanged?: MemoOnMount<Memory> | null): boolean;
+    /** Alternative for .use, that requires a function. (Do not use this, if you can reuse a function.)
      * - Note that if you can reuse a function all the time, you should. (There's no point declaring a new one every time in vain.)
-     * - Note that you can also call .update(mem), and if it returns true, then do your effect inline.  */
-    reset(effect: EffectOnMount<Memory> | null, memory: this["memory"], forceRun?: boolean): boolean;
-    /** Cancel effect. */
-    cancel(skipUnmount?: boolean, clearEffect?: boolean): void;
+     * - Note that you can also call .update(mem), and if it returns true, then execute your callback inline.  */
+    reset(onMount: MemoOnMount<Memory> | null, memory: this["memory"], forceRun?: boolean): boolean;
+    /** Cancel unmount callback. */
+    cancel(skipUnmount?: boolean, clearMemo?: boolean): void;
     /** Set the comparison depth using a number or the shortcut names in MixDOMUpdateCompareMode. */
     setDepth(depth?: number | MixDOMUpdateCompareMode | null): void;
 }
-declare class Effect<Memory = any> extends Effect_base {
+declare class Memo<Memory = any> extends Memo_base {
 }
-declare const newEffect: <Memory = any>(effect?: EffectOnMount<Memory> | undefined, memory?: Memory | undefined) => Effect<Memory>;
+declare const newMemo: <Memory = any>(onMount?: MemoOnMount<Memory> | undefined, memory?: Memory | undefined) => Memo<Memory>;
 /** There are two ways you can use this:
- * 1. Call this to give basic Effect features.
- *      * For example: `class MyMix extends EffectMixin(MyBase) {}`
+ * 1. Call this to give basic Memo features.
+ *      * For example: `class MyMix extends MemoMixin(MyBase) {}`
  * 2. If you want to define Memory, use this simple trick instead:
- *      * For example: `class MyMix extends (EffectMixin as ClassMixer<typeof Effect<MyMemory>>)(MyBase) {}`
+ *      * For example: `class MyMix extends (MemoMixin as ClassMixer<typeof Memo<MyMemory>>)(MyBase) {}`
  */
-declare const EffectMixin: ClassMixer<typeof Effect>;
+declare const MemoMixin: ClassMixer<typeof Memo>;
 
-/** For quick getting modes to depth for certain uses (Effect and DataPicker).
+/** For quick getting modes to depth for certain uses (Memo and DataPicker).
  * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
  * - Values are: "never" = -3, "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
 declare enum MixDOMCompareDepth {
@@ -3005,7 +3005,7 @@ declare const MixDOM: {
      * - This is very rarely useful, but in the case you want to display the passed content multiple times,
      *   this allows to distinguish from the real content pass: `{ MixDOM.Content }` vs. `{ MixDOM.copyContent("some-key") }` */
     copyContent: (key?: any) => MixDOMDefTarget;
-    /** For quick getting modes to depth for certain uses (Effect and DataPicker).
+    /** For quick getting modes to depth for certain uses (Memo and DataPicker).
      * - Positive values can go however deep. Note that -1 means deep, but below -2 means will not check.
      * - Values are: "always" = -2, "deep" = -1, "changed" = 0, "shallow" = 1, "double" = 2. */
     CompareDepthByMode: typeof MixDOMCompareDepth;
@@ -3046,8 +3046,8 @@ declare const MixDOM: {
     Host: typeof Host;
     Context: typeof Context;
     Ref: typeof Ref;
-    Effect: typeof Effect;
-    EffectMixin: ClassMixer<typeof Effect>;
+    Memo: typeof Memo;
+    MemoMixin: ClassMixer<typeof Memo>;
     /** Fragment represent a list of render output instead of stuff under one root.
      * Usage example: `<MixDOM.Fragment><div/><div/></MixDOM.Fragment>` */
     Fragment: typeof PseudoFragment;
@@ -3068,9 +3068,9 @@ declare const MixDOM: {
      *     * And it only adds the 2 public members (Content and ContentCopy) and 2 public methods (copycontent and withContent).
      *     * Due to not actually being a stream, it will never be used as a stream. It's just a straw dog.
      * - If you need to distinguish between real and fake, use `isStream()` method. The empty returns false.
-     *     * For example, to set specific content listening needs, you can use an effect - run it on render or .onBeforeUpdate callback.
-     *     * on effect mount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
-     *     * on effect unmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
+     *     * For example, to set specific content listening needs, you can use a memo - run it on render or .onBeforeUpdate callback.
+     *     * Memo onMount: `(NewStream: ComponentStreamType) => NewStream.isStream() && component.contentAPI.needsFor(NewStream, true);`
+     *     * MEmo onUnmount: `(OldStream: ComponentStreamType) => OldStream.isStream() && component.contentAPI.needsFor(OldStream, null);`
      */
     EmptyStream: ComponentStreamType;
     /** Create a Host instance to orchestrate rendering. */
@@ -3081,8 +3081,8 @@ declare const MixDOM: {
     newContexts: <Contexts_1 extends { [Name in keyof AllData & string]: Context<AllData[Name], any>; }, AllData extends { [Name_1 in keyof Contexts_1 & string]: Contexts_1[Name_1]["data"]; } = { [Name_2 in keyof Contexts_1 & string]: Contexts_1[Name_2]["data"]; }>(contextsData: AllData, settings?: Partial<ContextSettings> | undefined) => Contexts_1;
     /** Create a Ref instance. */
     newRef: <Type extends Node | ComponentTypeEither<{}> = Node | ComponentTypeEither<{}>>() => Ref<Type>;
-    /** Create an Effect instance. */
-    newEffect: <Memory = any>(effect?: EffectOnMount<Memory> | undefined, memory?: Memory | undefined) => Effect<Memory>;
+    /** Create an Memo instance. */
+    newMemo: <Memory = any>(onMount?: MemoOnMount<Memory> | undefined, memory?: Memory | undefined) => Memo<Memory>;
     /** Alias for createComponent. Create a functional component. You get the component as the first parameter, and optionally contextAPI as the second if you define 2 args: (component, contextAPI). */
     component: typeof createComponent;
     /** Create a functional component with ContextAPI. The first initProps is omitted: (component, contextAPI). The contextAPI is instanced regardless of argument count. */
@@ -3192,7 +3192,7 @@ declare const MixDOM: {
      * - Consider using mixFuncs or mixMixins concepts instead. They are like HOCs merged into one component with a dynamic base.
      */
     mixHOCs: typeof mixHOCs;
-    /** Create a data picker (returns a function): It's like Effect but for data with an intermediary extractor.
+    /** Create a data picker (returns a function): It's like Memo but for data with an intermediary extractor.
      * - Give an extractor that extracts an array out of your customly defined arguments.
      * - Whenever the extracted output has changed (in shallow sense by default), the selector will be run.
      * - The arguments of the selector is the extracted array spread out, and it should return the output data solely based on them.
@@ -3284,4 +3284,4 @@ declare namespace JSX {
     }
 }
 
-export { Awaited, CSSNumericKeys, CSSProperties, ClassMixer, ClassType, CleanDictionary, CleanDictionaryWith, CombineComponentFuncs, CombineInfosFromComponentFuncs, CombineMixins, Component, ComponentExternalSignals, ComponentFunc, ComponentFuncAny, ComponentFuncExtends, ComponentFuncExtendsType, ComponentFuncMixable, ComponentFuncOf, ComponentFuncRequires, ComponentFuncWith, ComponentHOC, ComponentHOCBase, ComponentInfo, ComponentInstanceType, ComponentMixin, ComponentMixinExtends, ComponentMixinExtendsInfo, ComponentMixinExtendsType, ComponentMixinType, ComponentOf, ComponentShadow, ComponentShadowFunc, ComponentShadowFuncWith, ComponentShadowSignals, ComponentShadowType, ComponentShadowWith, ComponentSignals, ComponentStream, ComponentStreamProps, ComponentStreamType, ComponentType, ComponentTypeAny, ComponentTypeEither, ComponentTypeOf, ComponentTypeWithClass, ComponentWired, ComponentWiredFunc, ComponentWiredType, ComponentWith, ComponentWithClass, Context, ContextAPI, CreateDataPicker, CreateDataSelector, DOMElement, DOMTags, DataExtractor, DataMan, DataManMixin, DataManType, DataSignalMan, DataSignalManMixin, DataSignalManType, Dictionary, Effect, EffectMixin, ExtendComponentFunc, ExtendComponentInfoWith, FirstSplit, GetComponentFuncInfo, GetComponentInfo, GetComponentInfoFromMixins, GetConstructorArgs, GetConstructorReturn, GetJoinedDataKeysFrom, GetJoinedDataKeysFromContexts, GetJoinedSignalKeysFromContexts, HTMLAttributes, HTMLElementType, HTMLSVGAttributes, HTMLSVGAttributesBy, HTMLTags, Host, HostSettings, HostSettingsUpdate, Intersect, IntrinsicAttributesBy, JSX, Join, ListenerAttributeNames, ListenerAttributes, ListenerAttributesAll, MergeClasses, MergeSignalsFromContexts, MixDOM, MixDOMBoundary, MixDOMChangeInfos, MixDOMCloneNodeBehaviour, MixDOMCommonDOMProps, MixDOMCompareDepth, MixDOMComponentPreUpdates, MixDOMComponentTag, MixDOMComponentUpdates, MixDOMContent, MixDOMContentCopy, MixDOMContentEnvelope, MixDOMContentNull, MixDOMContentSimple, MixDOMContentValue, MixDOMContextsAll, MixDOMDOMDiffs, MixDOMDOMProps, MixDOMDefApplied, MixDOMDefAppliedBase, MixDOMDefAppliedPseudo, MixDOMDefBoundary, MixDOMDefContent, MixDOMDefContentInner, MixDOMDefDOM, MixDOMDefElement, MixDOMDefFragment, MixDOMDefHost, MixDOMDefKeyTag, MixDOMDefPass, MixDOMDefPortal, MixDOMDefTarget, MixDOMDefTargetBase, MixDOMDefTargetPseudo, MixDOMDefType, MixDOMDefTypesAll, MixDOMDoubleRenderer, MixDOMHydrationItem, MixDOMHydrationSuggester, MixDOMHydrationValidator, MixDOMPostTag, MixDOMPreBaseProps, MixDOMPreClassName, MixDOMPreComponentOnlyProps, MixDOMPreComponentProps, MixDOMPreDOMProps, MixDOMPreDOMTagProps, MixDOMPreProps, MixDOMPreTag, MixDOMProcessedDOMProps, MixDOMPseudoTag, MixDOMRenderInfo, MixDOMRenderOutput, MixDOMRenderOutputMulti, MixDOMRenderOutputSingle, MixDOMRenderTextContentCallback, MixDOMRenderTextTag, MixDOMRenderTextTagCallback, MixDOMSourceBoundaryChange, MixDOMSourceBoundaryChangeType, MixDOMSourceBoundaryId, MixDOMTreeNode, MixDOMTreeNodeBoundary, MixDOMTreeNodeDOM, MixDOMTreeNodeEmpty, MixDOMTreeNodeHost, MixDOMTreeNodePass, MixDOMTreeNodePortal, MixDOMTreeNodeRoot, MixDOMTreeNodeType, MixDOMUpdateCompareMode, MixDOMUpdateCompareModesBy, NameValidator, NodeJSTimeout, PropType, PseudoElement, PseudoElementProps, PseudoEmpty, PseudoEmptyProps, PseudoEmptyStream, PseudoFragment, PseudoFragmentProps, PseudoPortal, PseudoPortalProps, ReadComponentClassInfo, RecordableType, Ref, RefSignals, ReturnTypes, SVGAriaAttributes, SVGAttributes, SVGAttributesBy, SVGCoreAttributes, SVGElementType, SVGGeneralAttributes, SVGGlobalAttributes, SVGGraphicalEventAttributes, SVGNativeAttributes, SVGPresentationalAttributes, SVGStylingAttributes, SVGTags, SecondSplit, SignalListener, SignalListenerFunc, SignalMan, SignalManFlags, SignalManMixin, SignalManType, Split, SplitOnce, SpreadFunc, SpreadFuncWith, ValidateNames, WithContentInfo, createComponent, createComponentWith, createDataPicker, createDataSelector, createMixin, createShadow, createShadowWith, createSpread, createSpreadWith, createStream, createWired, mergeShadowWiredAPIs, mixComponentClassFuncs, mixComponentClassFuncsWith, mixComponentClassMixins, mixComponentFuncs, mixComponentFuncsWith, mixComponentMixins, mixComponentMixinsWith, mixHOCs, newContext, newContexts, newDef, newEffect, newHost, newRef };
+export { Awaited, CSSNumericKeys, CSSProperties, ClassMixer, ClassType, CleanDictionary, CleanDictionaryWith, CombineComponentFuncs, CombineInfosFromComponentFuncs, CombineMixins, Component, ComponentExternalSignals, ComponentFunc, ComponentFuncAny, ComponentFuncExtends, ComponentFuncExtendsType, ComponentFuncMixable, ComponentFuncOf, ComponentFuncRequires, ComponentFuncWith, ComponentHOC, ComponentHOCBase, ComponentInfo, ComponentInstanceType, ComponentMixin, ComponentMixinExtends, ComponentMixinExtendsInfo, ComponentMixinExtendsType, ComponentMixinType, ComponentOf, ComponentShadow, ComponentShadowFunc, ComponentShadowFuncWith, ComponentShadowSignals, ComponentShadowType, ComponentShadowWith, ComponentSignals, ComponentStream, ComponentStreamProps, ComponentStreamType, ComponentType, ComponentTypeAny, ComponentTypeEither, ComponentTypeOf, ComponentTypeWithClass, ComponentWired, ComponentWiredFunc, ComponentWiredType, ComponentWith, ComponentWithClass, Context, ContextAPI, CreateDataPicker, CreateDataSelector, DOMElement, DOMTags, DataExtractor, DataMan, DataManMixin, DataManType, DataSignalMan, DataSignalManMixin, DataSignalManType, Dictionary, ExtendComponentFunc, ExtendComponentInfoWith, FirstSplit, GetComponentFuncInfo, GetComponentInfo, GetComponentInfoFromMixins, GetConstructorArgs, GetConstructorReturn, GetJoinedDataKeysFrom, GetJoinedDataKeysFromContexts, GetJoinedSignalKeysFromContexts, HTMLAttributes, HTMLElementType, HTMLSVGAttributes, HTMLSVGAttributesBy, HTMLTags, Host, HostSettings, HostSettingsUpdate, Intersect, IntrinsicAttributesBy, JSX, Join, ListenerAttributeNames, ListenerAttributes, ListenerAttributesAll, Memo, MemoMixin, MergeClasses, MergeSignalsFromContexts, MixDOM, MixDOMBoundary, MixDOMChangeInfos, MixDOMCloneNodeBehaviour, MixDOMCommonDOMProps, MixDOMCompareDepth, MixDOMComponentTag, MixDOMComponentUpdates, MixDOMContent, MixDOMContentCopy, MixDOMContentEnvelope, MixDOMContentNull, MixDOMContentSimple, MixDOMContentValue, MixDOMContextsAll, MixDOMDOMDiffs, MixDOMDOMProps, MixDOMDefApplied, MixDOMDefAppliedBase, MixDOMDefAppliedPseudo, MixDOMDefBoundary, MixDOMDefContent, MixDOMDefContentInner, MixDOMDefDOM, MixDOMDefElement, MixDOMDefFragment, MixDOMDefHost, MixDOMDefKeyTag, MixDOMDefPass, MixDOMDefPortal, MixDOMDefTarget, MixDOMDefTargetBase, MixDOMDefTargetPseudo, MixDOMDefType, MixDOMDefTypesAll, MixDOMDoubleRenderer, MixDOMHydrationItem, MixDOMHydrationSuggester, MixDOMHydrationValidator, MixDOMPostTag, MixDOMPreBaseProps, MixDOMPreClassName, MixDOMPreComponentOnlyProps, MixDOMPreComponentProps, MixDOMPreDOMProps, MixDOMPreDOMTagProps, MixDOMPreProps, MixDOMPreTag, MixDOMProcessedDOMProps, MixDOMPseudoTag, MixDOMRenderInfo, MixDOMRenderOutput, MixDOMRenderOutputMulti, MixDOMRenderOutputSingle, MixDOMRenderTextContentCallback, MixDOMRenderTextTag, MixDOMRenderTextTagCallback, MixDOMSourceBoundaryChange, MixDOMSourceBoundaryChangeType, MixDOMSourceBoundaryId, MixDOMTreeNode, MixDOMTreeNodeBoundary, MixDOMTreeNodeDOM, MixDOMTreeNodeEmpty, MixDOMTreeNodeHost, MixDOMTreeNodePass, MixDOMTreeNodePortal, MixDOMTreeNodeRoot, MixDOMTreeNodeType, MixDOMUpdateCompareMode, MixDOMUpdateCompareModesBy, NameValidator, NodeJSTimeout, PropType, PseudoElement, PseudoElementProps, PseudoEmpty, PseudoEmptyProps, PseudoEmptyStream, PseudoFragment, PseudoFragmentProps, PseudoPortal, PseudoPortalProps, ReadComponentClassInfo, RecordableType, Ref, RefSignals, ReturnTypes, SVGAriaAttributes, SVGAttributes, SVGAttributesBy, SVGCoreAttributes, SVGElementType, SVGGeneralAttributes, SVGGlobalAttributes, SVGGraphicalEventAttributes, SVGNativeAttributes, SVGPresentationalAttributes, SVGStylingAttributes, SVGTags, SecondSplit, SignalListener, SignalListenerFunc, SignalMan, SignalManFlags, SignalManMixin, SignalManType, Split, SplitOnce, SpreadFunc, SpreadFuncWith, ValidateNames, WithContentInfo, createComponent, createComponentWith, createDataPicker, createDataSelector, createMixin, createShadow, createShadowWith, createSpread, createSpreadWith, createStream, createWired, mergeShadowWiredAPIs, mixComponentClassFuncs, mixComponentClassFuncsWith, mixComponentClassMixins, mixComponentFuncs, mixComponentFuncsWith, mixComponentMixins, mixComponentMixinsWith, mixHOCs, newContext, newContexts, newDef, newHost, newMemo, newRef };
